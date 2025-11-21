@@ -1,169 +1,169 @@
-Opis Projektu – Temat 13: Jaskinia
-1. Wprowadzenie
+# Opis projektu — Temat 13: Jaskinia
 
-Celem projektu jest stworzenie symulacji systemu organizacji zwiedzania jaskini, w której funkcjonują dwie niezależne trasy turystyczne. System powinien odwzorowywać zasady regulaminu, ograniczenia fizyczne infrastruktury (kładki wejściowe i wyjściowe), sposób działania przewodników, strażnika oraz kasjera, a także zachowania zwiedzających.
-Wyniki działania symulacji muszą zostać zapisane w jednym lub kilku plikach tekstowych, stanowiących raport z przebiegu całego procesu.
+## Dane identyfikacyjne pliku
 
-2. Opis środowiska i założeń
+**Nazwa pliku:** `NAZWISKO_IMIĘ_NR_ALBUMU_opis_temat13.md`
 
-Zwiedzanie jaskini odbywa się w przedziale czasowym od Tp do Tk. W tym czasie turyści mogą wejść do jaskini na jedną z dwóch tras:
+> Uwaga: przed oddaniem zamień `NAZWISKO`, `IMIĘ` i `NR_ALBUMU` na swoje dane.
 
-Trasa 1 – maksymalna liczba zwiedzających: N1
+---
 
-Trasa 2 – maksymalna liczba zwiedzających: N2
+## 1. Streszczenie projektu
 
-Wejście i wyjście z jaskini odbywa się poprzez dwie wąskie kładki, z których każda ma pojemność K (przy czym K < Ni). Kładka umożliwia w danym momencie ruch wyłącznie w jednym kierunku – nie jest możliwe jednoczesne wchodzenie i wychodzenie.
+Celem projektu jest opracowanie symulacji organizacji zwiedzania jaskini z dwiema równoległymi trasami turystycznymi. Symulacja ma odwzorować zachowanie zwiedzających, obsługę kasową, pracę przewodników oraz reakcję strażnika na polecenia przerwania przyjmowania nowych grup. Wyniki symulacji mają być zapisywane w formie czytelnego raportu tekstowego.
 
-Zwiedzanie trwa:
+## 2. Założenia i parametry wejściowe
 
-na trasie 1 – T1 jednostek czasu,
+* Okres działania jaskini: od (T_p) do (T_k).
+* Trasa 1 — maks. liczba zwiedzających: **N1**.
+* Trasa 2 — maks. liczba zwiedzających: **N2**.
+* Pojemność kładki (wejście/wyjście): **K** (przy założeniu **K < Ni** dla każdej trasy).
+* Czas zwiedzania trasy 1: **T1** (jednostki czasu).
+* Czas zwiedzania trasy 2: **T2** (jednostki czasu).
+* Generacja zwiedzających: losowa, wiek z rozkładu dyskretnego 1–80 lat.
+* Udział powracających zwiedzających: około 10% — mają zniżkę 50% i (jeżeli regulamin pozwala) mogą wejść na drugą trasę z pierwszeństwem (omijać kolejkę).
 
-na trasie 2 – T2 jednostek czasu.
+## 3. Regulamin i ograniczenia wiekowe
 
-Zwiedzający pojawiają się losowo, każdy w wieku od 1 do 80 lat.
+1. Dzieci poniżej 3 lat: bilet bezpłatny.
+2. Dzieci poniżej 8 lat: mogą zwiedzać tylko trasę 2 i muszą przebywać pod opieką osoby dorosłej.
+3. Osoby powyżej 75 roku życia: mogą zwiedzać tylko trasę 2.
+4. Powtarzający zwiedzający (ok. 10%): mają prawo do 50% zniżki, mogą wejść na *drugą* trasę omijając kolejkę (tylko gdy regulamin to umożliwia).
 
-3. Zasady wejścia i regulamin
+## 4. Opis elementów systemu (moduły)
 
-Zwiedzający mogą wchodzić na trasy zgodnie z następującymi zasadami:
+### 4.1 Kasjer
 
-Dzieci poniżej 3 lat – nie płacą za bilet.
+* Obsługa sprzedaży biletów i kontroli uprawnień do wyboru trasy (wiek, opiekun dla dziecka <8 lat, zasady dla osób >75 lat).
+* Oznaczanie zwiedzających powracających i przyznawanie zniżek oraz prawa do wejścia bez kolejki.
+* Kierowanie osoby/rodziny do właściwej kolejki.
 
-Dzieci poniżej 8 lat:
+### 4.2 Zwiedzający
 
-mogą zwiedzać wyłącznie trasę 2,
+* Model zachowania: przyjście (losowe), zakup biletu, oczekiwanie w kolejce, wejście na trasę, zwiedzanie, wyjście.
+* Dla dzieci <8 lat — konieczność obecności opiekuna.
 
-muszą pozostawać pod opieką osoby dorosłej.
+### 4.3 Przewodnik (po jednej instancji na trasę)
 
-Osoby powyżej 75 roku życia – mogą zwiedzać wyłącznie trasę 2.
+* Zbieranie grupy do maks. pojemności trasy (Ni).
+* Dopilnowanie, aby przed wyruszeniem na trasę kładka była pusta.
+* Zezwalanie na wejście na kładkę maksymalnie po **K** osób jednocześnie (kładka jednokierunkowa).
+* Monitorowanie czasu zwiedzania (T1/T2) i ogłaszanie zakończenia.
+* Reakcja na sygnał strażnika:
 
-Zwiedzający powracający (ok. 10%) – mogą zakupić bilet z 50% zniżką i wejść na inną trasę niż poprzednio, z pominięciem kolejki, pod warunkiem że regulamin na to pozwala.
+  * jeśli sygnał otrzymany przed wyjściem grupy — nie prowadzi wycieczki, grupa opuszcza jaskinię;
+  * jeśli sygnał otrzymany w trakcie zwiedzania — grupa kończy zwiedzanie normalnie.
 
-4. Kładka wejściowa i wyjściowa
+### 4.4 Strażnik
 
-Kładka ma pojemność K, co oznacza, że jednocześnie może znajdować się na niej najwyżej K osób, przy czym ruch może odbywać się tylko w jednym kierunku:
+* Nadawanie sygnałów `sygnał1` i `sygnał2` informujących przewodników o konieczności zakończenia przyjmowania nowych grup (np. zbliżony czas Tk).
+* Zapewnienie, że po wysłaniu sygnału nie rozpoczynają się żadne nowe wycieczki na danej trasie.
 
-wchodzenie → wyłącznie gdy nikt nie wychodzi,
+## 5. Wymagania synchronizacyjne
 
-wychodzenie → wyłącznie gdy nikt nie wchodzi.
+* Kładka umożliwia ruch w danym momencie tylko w jednym kierunku. Należy zastosować mechanizm zapewniający wykluczenie wzajemne ruchu wejścia i wyjścia na kładce.
+* Przed rozpoczęciem wejścia przewodnik musi upewnić się, że na kładce nie ma osób (stan pusty).
+* Na trasie nie może przebywać więcej osób niż Ni.
+* Powracający zwiedzający (z prawem pominięcia kolejki) muszą być obsłużeni tak, aby nie naruszać ograniczeń Ni i K.
 
-Przewodnik może rozpocząć wycieczkę dopiero wtedy, gdy kładka jest całkowicie pusta.
+### Proponowane mechanizmy synchronizacji
 
-5. Praca przewodników
+* Semafory/liczniki dostępów (`semaphore` / `counting semaphore`) do ograniczania wejść na kładkę.
+* Mutex/monitor do ochrony stanu kładki (kierunek ruchu i liczba osób)
+* Zdarzenia/warunki (`condition variable`) do komunikacji przewodnika z kasjerem/zwiedzającymi o możliwości rozpoczęcia wejścia.
 
-Dla każdej trasy działa niezależny przewodnik. Jego zadania:
+## 6. Struktura projektu i pliki wynikowe
 
-kontrola liczby turystów wchodzących na trasę (nie więcej niż N1/N2),
+* `kasjer.*` — moduł symulujący sprzedaż biletów.
+* `zwiedzajacy.*` — moduł reprezentujący zachowanie zwiedzających.
+* `przewodnik1.*`, `przewodnik2.*` — moduły przewodników dla trasy 1 i 2.
+* `straznik.*` — moduł sterujący sygnałami.
+* `main.*` — moduł uruchamiający symulację (konfiguracja parametrów).
+* `logs/` — katalog z plikami logów/raportami (np. `raport_YYYYMMDD_HHMMSS.txt`).
 
-kontrola ruchu na kładce (wejście tylko przy pustej kładce),
+Pliki logów powinny zawierać:
 
-informowanie systemu o rozpoczęciu i zakończeniu wycieczki,
+* znacznik czasu zdarzenia,
+* zdarzenie (przyjście, zakup biletu, wejście na kładkę, rozpoczęcie zwiedzania, zakończenie, wyjście, sygnał strażnika),
+* identyfikator zwiedzającego (np. ID + wiek),
+* dodatkowe informacje (trasa, czy uprawnia do zniżki itp.).
 
-reakcja na sygnały strażnika:
+## 7. Interfejs konfiguracji
 
-Sygnał przerwania (strażnik):
+Plik konfiguracyjny (`config.json` lub podobny) powinien zawierać parametry:
 
-jeśli sygnał dotrze przed wyruszeniem grupy, wycieczka nie jest prowadzona, a zwiedzający opuszczają jaskinię,
+* `Tp`, `Tk`
+* `N1`, `N2`
+* `K`
+* `T1`, `T2`
+* tempo generacji zwiedzających (np. lambda dla procesu Poissona lub średni interwał)
+* udział powracających (np. 0.1)
 
-jeśli sygnał dotrze w trakcie wycieczki, grupa kończy zwiedzanie normalnie.
+## 8. Scenariusze testowe
 
-6. Rola kasjera
+Opis i oczekiwane rezultaty dla kluczowych scenariuszy:
 
-Kasjer odpowiada za:
+### Test 1 — Praca nominalna
 
-sprzedaż biletów (z uwzględnieniem zasad regulaminu i konieczności obecności opiekuna),
+* Brak sygnałów strażnika przed zakończeniem pracy.
+* Oczekiwane: system przyjmuje i obsługuje zwiedzających zgodnie z ograniczeniami K, N1, N2; logi odzwierciedlają przebieg.
 
-kwalifikowanie turystów na właściwą trasę,
+### Test 2 — Sygnał przed wyruszeniem grupy
 
-obsługę zwiedzających powracających i pomijających kolejkę,
+* Strażnik wysyła sygnał dla trasy przed startem zaplanowanej grupy.
+* Oczekiwane: przewodnik nie prowadzi wycieczki, grupa opuszcza jaskinię; brak rozpoczęcia wycieczki w logach.
 
-kierowanie zwiedzających do kolejki właściwej dla każdej trasy.
+### Test 3 — Sygnał w trakcie zwiedzania
 
-7. Rola zwiedzających
+* Strażnik wysyła sygnał dla trasy, gdy grupa jest w trakcie zwiedzania.
+* Oczekiwane: grupa kończy zwiedzanie normalnie; po sygnale nie rozpoczynają się nowe wycieczki.
 
-Każdy zwiedzający:
+### Test 4 — Dziecko <8 z opiekunem
 
-pojawia się w losowym momencie,
+* Para dorosły + dziecko kupuje bilety; dziecko może wejść tylko na trasę 2.
+* Oczekiwane: para przydzielona do trasy 2, nie dopuszcza się wejścia dziecka bez opiekuna.
 
-kupuje bilet i trafia do odpowiedniej kolejki,
+### Test 5 — Osoba >75
 
-czeka na wejście na trasę zgodnie z zasadami,
+* Osoba starsza zostaje skierowana tylko na trasę 2.
 
-po zakończeniu wycieczki opuszcza jaskinię poprzez kładkę,
+### Test 6 — Powtarzający zwiedzający
 
-może w szczególnych przypadkach powtórzyć zwiedzanie innej trasy (z pominięciem kolejki).
+* Ok. 10% osób ponownie odwiedza jaskinię tego samego dnia z 50% zniżką i pominięciem kolejki.
+* Oczekiwane: system obsługuje takie osoby z pierwszeństwem, przy zachowaniu limitów N i K.
 
-8. Rola strażnika
+## 9. Proponowana implementacja — wskazówki techniczne
 
-Strażnik:
+* Język: dowolny język wspierający wielowątkowość (np. **Python** z `threading`/`multiprocessing`, **Java** z `java.util.concurrent`, **C/C++** z pthreads).
+* Do logów użyć struktury tekstowej z czytelnymi wpisami; każdemu wpisowi przypisać timestamp.
+* Użyć deterministycznych generatorów pseudolosowych (opcjonalnie przydatne do testów reproducibility) — np. z seedem.
+* W implementacji testów uwzględnić tryb „fast-forward” umożliwiający szybsze wykonanie scenariuszy (skalowanie czasu).
 
-nadzoruje godziny pracy jaskini,
+## 10. Instrukcja uruchomienia (przykładowa)
 
-wysyła sygnały sygnał1 (dla trasy 1) i sygnał2 (dla trasy 2) informujące o konieczności zakończenia przyjmowania nowych grup przed czasem Tk,
+1. Przygotuj `config.json` z parametrami symulacji.
+2. Uruchom program główny, np.:
 
-zapewnia, że po wysłaniu sygnału żadna nowa wycieczka nie rozpocznie się.
+```bash
+python main.py --config config.json --seed 42
+```
 
-9. Synchronizacja i wymogi systemowe
+3. Po zakończeniu symulacji sprawdź katalog `logs/` i odczytaj wygenerowany raport.
 
-W projekcie należy zaimplementować mechanizmy synchronizacji, które umożliwią:
+## 11. Kryteria oceny (sugerowane)
 
-kontrolę ilości zwiedzających w kolejkach,
+* Zgodność z regulaminem (zasady wiekowe, ograniczenia N i K).
+* Poprawność synchronizacji (brak kolizji ruchu na kładce, brak przekroczeń Ni).
+* Kompletny i czytelny raport zdarzeń.
+* Pokrycie testów scenariuszy.
+* Czytelność i modularność kodu.
 
-kontrolę ruchu jednokierunkowego po kładce,
+## 12. Dodatki (opcjonalne)
 
-zapobieganie wejściu grupy, gdy kładka jest zajęta,
+* Interfejs graficzny lub prosty dashboard wyświetlający aktualny stan kolejek, kładek i trasy.
+* Eksport logów do formatu CSV dla dalszej analizy.
+* Wersja deterministyczna do automatycznych testów jednostkowych.
 
-równoległą obsługę dwóch tras,
+---
 
-właściwą komunikację między przewodnikiem, kasjerem, zwiedzającymi i strażnikiem.
-
-10. Raport z działania symulacji
-
-Symulacja powinna generować raport w postaci jednego lub kilku plików tekstowych, w których znajdą się:
-
-czas pojawienia się zwiedzających,
-
-zakup biletów wraz z typem trasy,
-
-wejścia i wyjścia z jaskini,
-
-rozpoczęcia i zakończenia wycieczek,
-
-momenty zmiany stanu kładki,
-
-informacje o wysłanych sygnałach strażnika.
-
-11. Testy, które należy przewidzieć
-
-Projekt powinien umożliwić przetestowanie następujących scenariuszy:
-
-Normalna praca jaskini bez sygnałów strażnika.
-
-Otrzymanie sygnału przerwania przed wyjściem grupy.
-
-Otrzymanie sygnału przerwania w trakcie zwiedzania.
-
-Obsługa opiekuna z dzieckiem <8 lat.
-
-Obsługa osoby starszej (>75 lat).
-
-Odmowa wejścia na niewłaściwą trasę.
-
-Poprawna obsługa zwiedzających powracających i pomijających kolejkę.
-
-Kontrola pojemności kładki i tras.
-
-12. Zawartość projektu
-
-W ramach projektu należy przygotować:
-
-program przewodnika (dla obu tras),
-
-program kasjera,
-
-program zwiedzającego,
-
-program strażnika,
-
-raport wynikowy,
-
-plik opisowy .md zgodnie z formatem:
+*Plik gotowy do wklejenia do dokumentu `.md`. Jeśli chcesz, mogę od razu dołączyć przykładową implementację (wielowątkową) w Pythonie z wygenerowanymi testami — wtedy dołączę także plik konfiguracyjny i przykładowy log.*
