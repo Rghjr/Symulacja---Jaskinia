@@ -39,7 +39,7 @@ Projekt przedstawia symulację organizacji zwiedzania jaskini posiadającej dwie
 
 * Kupuje bilet, oczekuje w kolejce, wchodzi na trasę, zwiedza i opuszcza jaskinię.
 * Dziecko <8 lat wymaga opiekuna.
-* Każdy zwiedzający generuje log w `logs/zwiedzajacy_<id>.log`.
+* Każdy zwiedzający generuje logi w `logs/zwiedzajacy.log`.
 
 ### 4.3 Przewodnik (oddzielny dla każdej trasy)
 
@@ -58,15 +58,10 @@ Projekt przedstawia symulację organizacji zwiedzania jaskini posiadającej dwie
 
 ## 5. Synchronizacja systemu
 
-* Kładka jednokierunkowa.
-* Max **K** osób jednocześnie.
-* Trasy nie przekraczają limitów **N1/N2**.
-
-### Mechanizmy (C++)
-
-* `std::mutex`, `std::condition_variable`.
-* Liczniki stanu kładki i kierunku.
-* Wątki: zwiedzający, przewodnicy, kasjer, strażnik.
+* Kładka jednokierunkowa — kontrolowana przez semafor lub zmienną w pamięci współdzielonej.
+* Limit osób na trasie — licznik w pamięci współdzielonej.
+* Komunikacja między procesami: kolejki do przewodnika, kasjera i strażnika.
+* Procesy: zwiedzający, przewodnicy, kasjer, strażnik, każdy działa niezależnie.
 
 ## 6. Struktura projektu
 
