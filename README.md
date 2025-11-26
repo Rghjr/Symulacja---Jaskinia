@@ -24,7 +24,7 @@ Projekt przedstawia symulację organizacji zwiedzania jaskini posiadającej dwie
    * tylko trasa 2,
    * wymagany opiekun.
 3. Osoby >75 lat — tylko trasa 2.
-4. Zwiedzający powracający — zniżka 50% + pominięcie kolejki.
+4. Zwiedzający powracający tego samego dnia — zniżka 50% + pominięcie kolejki + wejście na drugą trasę ( inna niż pierwsza ).
 
 ## 4. Moduły systemu
 
