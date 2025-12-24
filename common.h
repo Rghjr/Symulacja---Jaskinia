@@ -9,8 +9,12 @@
 #include <signal.h>
 #include <time.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/types.h>
+#include <sys/ipc.h>
 #include <sys/sem.h>
+
+
 
 /// ================= KONFIGURACJA SYMULACJI =================
 /// Limity osób na trasach
@@ -35,6 +39,7 @@
 /// Szansa na powtórną wizytę (%)
 #define REPEAT_CHANCE 10
 
+
 /// ================= KIERUNKI KŁADKI =================
 /// Brak ruchu
 #define KIERUNEK_PUSTY 0
@@ -45,6 +50,7 @@
 /// Ruch na zewnątrz
 #define KIERUNEK_WYJSCIE 2
 
+
 /// ================= DECYZJE KASJERA =================
 /// Zwiedzający odrzucony
 #define DECYZJA_ODRZUCONY 0
@@ -54,6 +60,7 @@
 
 /// Zwiedzający idzie na trasę 2
 #define DECYZJA_TRASA2 2
+
 
 /// ================= SEMAFORY =================
 /// Klucz zestawu semaforów (wspólny dla wszystkich procesów)
@@ -74,6 +81,7 @@
 /// Łączna liczba semaforów
 #define SEM_COUNT 4
 
+
 /// ================= STRUKTURA semun =================
 /// Wymagana przez semctl (SysV jest stare i upierdliwe)
 union semun {
@@ -81,6 +89,7 @@ union semun {
     struct semid_ds* buf;
     unsigned short* array;
 };
+
 
 /// ================= OPERACJE NA SEMAFORACH =================
 /// Blokujące opuszczenie semafora (P)
@@ -94,5 +103,15 @@ int sem_trywait(int semid, int sem_num);
 
 /// Ustawienie początkowej wartości semafora
 void sem_init_value(int semid, int sem_num, int value);
+
+
+/// ================= LOGOWANIE =================
+/// Proste logowanie do pliku – pomocnicze dla debugowania
+
+/// Zapis prostego komunikatu
+void log_message(const char* process, const char* message);
+
+/// Logowanie z formatowaniem printf
+void log_formatted(const char* process, const char* format, ...);
 
 #endif
