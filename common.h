@@ -2,18 +2,22 @@
 #define COMMON_H
 
 /// ================= PODSTAWOWE INCLUDE'Y =================
-/// Tylko to, co faktycznie potrzebne
+/// Wszystkie potrzebne do IPC, procesów i logowania
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
+
 #include <sys/types.h>
 #include <sys/ipc.h>
+#include <sys/shm.h>
 #include <sys/sem.h>
-
+#include <sys/msg.h>
+#include <sys/wait.h>
 
 
 /// ================= KONFIGURACJA SYMULACJI =================
@@ -40,6 +44,19 @@
 #define REPEAT_CHANCE 10
 
 
+/// ================= KLUCZE IPC =================
+/// Klucz pamięci dzielonej
+#define SHM_KEY 0x1234
+
+/// Klucz zestawu semaforów
+#define SEM_KEY 0x5678
+
+/// Klucze kolejek komunikatów
+#define MSG_KEY_KASJER       0x9ABC
+#define MSG_KEY_PRZEWODNIK1  0xDEF0
+#define MSG_KEY_PRZEWODNIK2  0x1234
+
+
 /// ================= KIERUNKI KŁADKI =================
 /// Brak ruchu
 #define KIERUNEK_PUSTY 0
@@ -62,10 +79,18 @@
 #define DECYZJA_TRASA2 2
 
 
-/// ================= SEMAFORY =================
-/// Klucz zestawu semaforów (wspólny dla wszystkich procesów)
-#define SEM_KEY 0x5678
+/// ================= TYPY KOMUNIKATÓW =================
+/// Żądanie do kasjera
+#define MSG_TYPE_REQUEST 1
 
+/// Odpowiedź kasjera
+#define MSG_TYPE_RESPONSE 2
+
+/// Komunikat do przewodnika
+#define MSG_TYPE_ZWIEDZAJACY 3
+
+
+/// ================= SEMAFORY =================
 /// Mutex do synchronizacji dostępu do kładki
 #define SEM_MUTEX_KLADKA 0
 
@@ -78,8 +103,11 @@
 /// Mutex trasy 2
 #define SEM_MUTEX_TRASA2 3
 
+/// Mutex do logów (jeśli kilka procesów loguje naraz)
+#define SEM_MUTEX_LOG 4
+
 /// Łączna liczba semaforów
-#define SEM_COUNT 4
+#define SEM_COUNT 5
 
 
 /// ================= STRUKTURA semun =================
@@ -89,6 +117,52 @@ union semun {
     struct semid_ds* buf;
     unsigned short* array;
 };
+
+
+/// ================= PAMIĘĆ DZIELONA =================
+/// Wspólny stan całej symulacji
+typedef struct {
+    int jaskinia_otwarta;
+    int osoby_na_trasie1;
+    int osoby_na_trasie2;
+    int kierunek_kladki;
+    int osoby_na_kladce;
+    time_t timestamp_start;
+
+    /// PID-y głównych procesów
+    pid_t pid_przewodnik1;
+    pid_t pid_przewodnik2;
+    pid_t pid_straznik;
+    pid_t pid_kasjer;
+    pid_t pid_generator;
+} SharedMemory;
+
+
+/// ================= KOMUNIKATY =================
+/// Komunikat wysyłany do kasjera
+typedef struct {
+    long mtype;
+    pid_t pid_zwiedzajacego;
+    int wiek;
+    int powtorna_wizyta;
+    int poprzednia_trasa;
+    int ma_opiekuna;
+    pid_t pid_opiekuna;
+} MessageKasjer;
+
+/// Odpowiedź kasjera
+typedef struct {
+    long mtype;
+    int decyzja;
+    int przydzielona_trasa;
+} MessageOdpowiedz;
+
+/// Komunikat do przewodnika
+typedef struct {
+    long mtype;
+    pid_t pid_zwiedzajacego;
+    int wiek;
+} MessagePrzewodnik;
 
 
 /// ================= OPERACJE NA SEMAFORACH =================
