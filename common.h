@@ -1,8 +1,6 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-/// ================= PODSTAWOWE INCLUDE'Y =================
-/// Wszystkie potrzebne do IPC, procesów i logowania
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,181 +9,234 @@
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
-
+#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/sem.h>
 #include <sys/msg.h>
 #include <sys/wait.h>
+#include <limits.h>
+#include <pthread.h>
 
-
-/// ================= KONFIGURACJA SYMULACJI =================
-/// Limity osób na trasach
 #define N1 15
 #define N2 20
-
-/// Pojemność kładki
 #define K 5
 
-/// Czasy zwiedzania tras (sekundy)
+#if N1 <= 0
+#error "N1 musi byc > 0"
+#endif
+
+#if N2 <= 0
+#error "N2 musi byc > 0"
+#endif
+
+#if K <= 0
+#error "K musi byc > 0"
+#endif
+
+#if K >= N1
+#error "K musi byc < N1"
+#endif
+
+#if K >= N2
+#error "K musi byc < N2"
+#endif
+
 #define T1 10
 #define T2 15
-
-/// Czas otwarcia i zamknięcia jaskini
 #define Tp 0
-#define Tk 1800
+#define Tk 300
 
-/// Generator zwiedzających – losowe opóźnienia
-#define GENERATOR_MIN_DELAY 1
-#define GENERATOR_MAX_DELAY 3
+#define OPOZNIENIE_GENERATORA_MIN 0
+#define OPOZNIENIE_GENERATORA_MAX 5
+#define SZANSA_POWTORNA 5
+#define SZANSA_DZIECKO_OPIEKUN 70
+#define MIN_WIEK 1
+#define MAX_WIEK 80
+#define MIN_WIEK_OPIEKUNA 25
+#define MAX_WIEK_OPIEKUNA 60
+#define MAX_ZWIEDZAJACYCH 1000
 
-/// Szansa na powtórną wizytę (%)
-#define REPEAT_CHANCE 10
+#define CZAS_ZBIERANIA_GRUPY 5
+#define CZAS_PRZECHODZENIA_KLADKA 200
+#define OPOZNIENIE_SPAWN_OPIEKUNA 50
 
+#define TIMEOUT_ODPOWIEDZ_BILET 30
+#define INTERWAL_POLLING 100
+#define TIMEOUT_PUSTA_JASKINIA 300
+#define WYPRZEDZENIE_SYGNAL_ZAMKNIECIA 10
+#define TIMEOUT_CZEKAJ_CLEANUP 10
+#define MAX_PROB_RETRY 10
+#define PROBY_SPRAWDZ_OPIEKUNA 7
+#define INTERWAL_LOG 10
 
-/// ================= KLUCZE IPC =================
-/// Klucz pamięci dzielonej
-#define SHM_KEY 0x1234
+#define KLUCZ_SHM_JASKINIA 0x1001
+#define KLUCZ_SHM_KLADKA1 0x1002
+#define KLUCZ_SHM_KLADKA2 0x1003
+#define KLUCZ_SHM_TRASA1 0x1004
+#define KLUCZ_SHM_TRASA2 0x1005
+#define KLUCZ_SHM_ZWIEDZAJACY 0x1009
 
-/// Klucz zestawu semaforów
-#define SEM_KEY 0x5678
+#define KLUCZ_SEM_KLADKA1_MIEJSCA 0x2002
+#define KLUCZ_SEM_KLADKA2_MIEJSCA 0x2004
+#define KLUCZ_SEM_LOG 0x2005
+#define KLUCZ_SEM_TRASA1_MUTEX 0x2006
+#define KLUCZ_SEM_TRASA2_MUTEX 0x2007
 
-/// Klucze kolejek komunikatów
-#define MSG_KEY_KASJER       0x9ABC
-#define MSG_KEY_PRZEWODNIK1  0xDEF0
-#define MSG_KEY_PRZEWODNIK2  0x1234
+#define KLUCZ_MSG_KASJER 0x3001
+#define KLUCZ_MSG_PRZEWODNIK1 0x3002
+#define KLUCZ_MSG_PRZEWODNIK2 0x3003
+#define KLUCZ_MSG_OPIEKUN_ACK 0x3004
 
+#define TYP_MSG_ZADANIE 1
+#define TYP_MSG_ODPOWIEDZ 2
+#define TYP_MSG_ZWIEDZAJACY 3
+#define TYP_MSG_POWTORNA 4
+#define TYP_MSG_OPIEKUN_GOTOWY 5
 
-/// ================= KIERUNKI KŁADKI =================
-/// Brak ruchu
-#define KIERUNEK_PUSTY 0
-
-/// Ruch do środka jaskini
-#define KIERUNEK_WEJSCIE 1
-
-/// Ruch na zewnątrz
-#define KIERUNEK_WYJSCIE 2
-
-
-/// ================= DECYZJE KASJERA =================
-/// Zwiedzający odrzucony
 #define DECYZJA_ODRZUCONY 0
-
-/// Zwiedzający idzie na trasę 1
 #define DECYZJA_TRASA1 1
-
-/// Zwiedzający idzie na trasę 2
 #define DECYZJA_TRASA2 2
 
+#define KIERUNEK_PUSTY 0
+#define KIERUNEK_WEJSCIE 1
+#define KIERUNEK_WYJSCIE 2
 
-/// ================= TYPY KOMUNIKATÓW =================
-/// Żądanie do kasjera
-#define MSG_TYPE_REQUEST 1
-
-/// Odpowiedź kasjera
-#define MSG_TYPE_RESPONSE 2
-
-/// Komunikat do przewodnika
-#define MSG_TYPE_ZWIEDZAJACY 3
-
-
-/// ================= SEMAFORY =================
-/// Mutex do synchronizacji dostępu do kładki
-#define SEM_MUTEX_KLADKA 0
-
-/// Licznik miejsc na kładce
-#define SEM_MIEJSCA_KLADKA 1
-
-/// Mutex trasy 1
-#define SEM_MUTEX_TRASA1 2
-
-/// Mutex trasy 2
-#define SEM_MUTEX_TRASA2 3
-
-/// Mutex do logów (jeśli kilka procesów loguje naraz)
-#define SEM_MUTEX_LOG 4
-
-/// Łączna liczba semaforów
-#define SEM_COUNT 5
-
-
-/// ================= STRUKTURA semun =================
-/// Wymagana przez semctl (SysV jest stare i upierdliwe)
-union semun {
-    int val;
-    struct semid_ds* buf;
-    unsigned short* array;
-};
-
-
-/// ================= PAMIĘĆ DZIELONA =================
-/// Wspólny stan całej symulacji
 typedef struct {
-    int jaskinia_otwarta;
-    int osoby_na_trasie1;
-    int osoby_na_trasie2;
-    int kierunek_kladki;
-    int osoby_na_kladce;
-    time_t timestamp_start;
+    volatile int otwarta;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond_otwarta;
+} ShmJaskinia;
 
-    /// PID-y głównych procesów
-    pid_t pid_przewodnik1;
-    pid_t pid_przewodnik2;
-    pid_t pid_straznik;
-    pid_t pid_kasjer;
-    pid_t pid_generator;
-} SharedMemory;
+typedef struct {
+    volatile int kierunek;
+    volatile int osoby;
+    volatile pid_t przewodnik_pid;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+} ShmKladka;
 
+typedef struct {
+    volatile int osoby;
+} ShmTrasa;
 
-/// ================= KOMUNIKATY =================
-/// Komunikat wysyłany do kasjera
+typedef struct {
+    volatile int licznik;
+    pid_t pidy[MAX_ZWIEDZAJACYCH];
+} ShmZwiedzajacy;
+
 typedef struct {
     long mtype;
     pid_t pid_zwiedzajacego;
     int wiek;
     int powtorna_wizyta;
     int poprzednia_trasa;
-    int ma_opiekuna;
     pid_t pid_opiekuna;
-} MessageKasjer;
+} WiadomoscKasjer;
 
-/// Odpowiedź kasjera
 typedef struct {
     long mtype;
     int decyzja;
     int przydzielona_trasa;
-} MessageOdpowiedz;
+} WiadomoscOdpowiedz;
 
-/// Komunikat do przewodnika
 typedef struct {
     long mtype;
     pid_t pid_zwiedzajacego;
     int wiek;
-} MessagePrzewodnik;
+} WiadomoscPrzewodnik;
 
+typedef struct {
+    long mtype;
+    pid_t pid_opiekuna;
+} WiadomoscOpiekunAck;
 
-/// ================= OPERACJE NA SEMAFORACH =================
-/// Blokujące opuszczenie semafora (P)
-void sem_wait(int semid, int sem_num);
+union semun {
+    int val;
+    struct semid_ds* buf;
+    unsigned short* array;
+};
 
-/// Podniesienie semafora (V)
-void sem_signal(int semid, int sem_num);
+static inline int bezpieczny_strtol(const char* str, int* wynik, int min, int max) {
+    char* endptr;
+    errno = 0;
+    long val = strtol(str, &endptr, 10);
+    if (errno != 0 || endptr == str || *endptr != '\0') return -1;
+    if (val < min || val > max) return -1;
+    *wynik = (int)val;
+    return 0;
+}
 
-/// Próba opuszczenia semafora bez blokowania
-int sem_trywait(int semid, int sem_num);
+extern int globalny_semid_log;
 
-/// Ustawienie początkowej wartości semafora
-void sem_init_value(int semid, int sem_num, int value);
+static inline int podlacz_sem_log() {
+    int retry = 0;
+    while (retry < MAX_PROB_RETRY) {
+        int semid = semget(KLUCZ_SEM_LOG, 0, 0);
+        if (semid != -1) return semid;
+        usleep(INTERWAL_POLLING * 1000);
+        retry++;
+    }
+    return -1;
+}
 
+static inline ssize_t bezpieczny_zapis_wszystko(int fd, const void* buf, size_t ilosc) {
+    size_t zapisane = 0;
+    const char* ptr = (const char*)buf;
 
-/// ================= LOGOWANIE =================
-/// Proste logowanie do pliku – pomocnicze dla debugowania
+    while (zapisane < ilosc) {
+        ssize_t n = write(fd, ptr + zapisane, ilosc - zapisane);
+        if (n == -1) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        zapisane += n;
+    }
+    return zapisane;
+}
 
-/// Zapis prostego komunikatu
-void log_message(const char* process, const char* message);
+static inline int bezpieczny_semop(int semid, struct sembuf* ops, size_t liczba) {
+    while (1) {
+        if (semop(semid, ops, liczba) == 0) {
+            return 0;
+        }
+        if (errno != EINTR) {
+            return -1;
+        }
+    }
+}
 
-/// Logowanie z formatowaniem printf
-void log_formatted(const char* process, const char* format, ...);
+static inline void bezpieczny_zapis_logu(const char* buf, size_t dlugosc, const char* nazwa_pliku) {
+    int sem_zdobyty = 0;
+
+    if (globalny_semid_log != -1) {
+        struct sembuf op = { 0, -1, 0 };
+        if (bezpieczny_semop(globalny_semid_log, &op, 1) == 0) {
+            sem_zdobyty = 1;
+        }
+    }
+
+    int fd = open(nazwa_pliku, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        bezpieczny_zapis_wszystko(fd, buf, dlugosc);
+        close(fd);
+    }
+
+    if (sem_zdobyty) {
+        struct sembuf op = { 0, 1, 0 };
+        bezpieczny_semop(globalny_semid_log, &op, 1);
+    }
+}
+
+static inline void bezpieczny_sem_wait(int semid, int numer) {
+    struct sembuf op = { numer, -1, 0 };
+    bezpieczny_semop(semid, &op, 1);
+}
+
+static inline void bezpieczny_sem_signal(int semid, int numer) {
+    struct sembuf op = { numer, 1, 0 };
+    bezpieczny_semop(semid, &op, 1);
+}
 
 #endif

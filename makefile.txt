@@ -1,0 +1,48 @@
+CC = gcc
+CFLAGS = -Wall -Wextra -g -pthread
+TARGETS = init straznik kasjer przewodnik generator zwiedzajacy
+
+NAGLOWKI_WSPOLNE = common.h common_helpers.h
+NAGLOWKI_STRAZNIK = $(NAGLOWKI_WSPOLNE) straznik_helpers.h
+NAGLOWKI_PRZEWODNIK = $(NAGLOWKI_WSPOLNE) przewodnik_helpers.h
+
+all: $(TARGETS)
+
+init: init.c $(NAGLOWKI_WSPOLNE)
+	$(CC) $(CFLAGS) -o init init.c
+
+straznik: straznik.c $(NAGLOWKI_STRAZNIK)
+	$(CC) $(CFLAGS) -o straznik straznik.c
+
+kasjer: kasjer.c $(NAGLOWKI_WSPOLNE)
+	$(CC) $(CFLAGS) -o kasjer kasjer.c
+
+przewodnik: przewodnik.c $(NAGLOWKI_PRZEWODNIK)
+	$(CC) $(CFLAGS) -o przewodnik przewodnik.c
+
+generator: generator.c $(NAGLOWKI_WSPOLNE)
+	$(CC) $(CFLAGS) -o generator generator.c
+
+zwiedzajacy: zwiedzajacy.c $(NAGLOWKI_WSPOLNE)
+	$(CC) $(CFLAGS) -o zwiedzajacy zwiedzajacy.c
+
+clean:
+	@echo "Zatrzymywanie procesow..."
+	@-pkill -9 -f './straznik' 2>/dev/null || true
+	@-pkill -9 -f './kasjer' 2>/dev/null || true
+	@-pkill -9 -f './przewodnik' 2>/dev/null || true
+	@-pkill -9 -f './generator' 2>/dev/null || true
+	@-pkill -9 -f './zwiedzajacy' 2>/dev/null || true
+	@sleep 1
+	@echo "Usuwanie zasobow IPC..."
+	@-ipcs -m | grep '^0x0000' | awk '{print $$2}' | xargs -r ipcrm -m 2>/dev/null || true
+	@-ipcs -s | grep '^0x0000' | awk '{print $$2}' | xargs -r ipcrm -s 2>/dev/null || true
+	@-ipcs -q | grep '^0x0000' | awk '{print $$2}' | xargs -r ipcrm -q 2>/dev/null || true
+	@echo "Usuwanie plikow..."
+	@rm -f $(TARGETS) *.log
+	@echo "Cleanup zakoñczony"
+
+run: all
+	./init
+
+.PHONY: all clean run

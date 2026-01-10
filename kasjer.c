@@ -1,186 +1,297 @@
 #include "common.h"
+#include "common_helpers.h"
 
-/// Flaga sterująca pętlą główną procesu kasjera
-/// Zmieniana asynchronicznie przez handler sygnału
-volatile sig_atomic_t keep_running = 1;
+volatile sig_atomic_t kontynuuj = 1;
+void obsluga_sigterm(int sig) { kontynuuj = 0; }
 
-/// Handler sygnału SIGTERM
-/// Ustawia flagę zakończenia pracy procesu
-void sigterm_handler(int sig) {
-    keep_running = 0;
+void loguj_wiadomosc(const char* wiadomosc) {
+    int sem_zdobyty = 0;
+    char ts[64], buf[512];
+
+    if (globalny_semid_log != -1) {
+        struct sembuf op = { 0, -1, 0 };
+        if (bezpieczny_semop(globalny_semid_log, &op, 1) == 0) {
+            sem_zdobyty = 1;
+        }
+    }
+
+    time_t teraz = time(NULL);
+    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&teraz));
+    snprintf(buf, sizeof(buf), "[%s] [PID:%d] [KASJER] %s\n", ts, getpid(), wiadomosc);
+
+    int fd = open("jaskinia_common.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        bezpieczny_zapis_wszystko(fd, buf, strlen(buf));
+        close(fd);
+    }
+
+    fd = open("jaskinia_kasjer.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        bezpieczny_zapis_wszystko(fd, buf, strlen(buf));
+        close(fd);
+    }
+
+    if (sem_zdobyty) {
+        struct sembuf op = { 0, 1, 0 };
+        bezpieczny_semop(globalny_semid_log, &op, 1);
+    }
+}
+
+void loguj_wiadomoscf(const char* format, ...) {
+    char wiadomosc[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(wiadomosc, sizeof(wiadomosc), format, args);
+    va_end(args);
+    loguj_wiadomosc(wiadomosc);
+}
+
+#define MAX_OPIEKUNOWIE 500
+
+typedef struct {
+    pid_t pid;
+    int trasa;
+} OpiekunTrasa;
+
+typedef struct {
+    OpiekunTrasa lista[MAX_OPIEKUNOWIE];
+    int licznik;
+} BazaOpiekunow;
+
+BazaOpiekunow baza_opiekunow = { .licznik = 0 };
+
+void zapisz_trase_opiekuna(pid_t pid_opiekuna, int trasa) {
+    if (baza_opiekunow.licznik >= MAX_OPIEKUNOWIE) {
+        loguj_wiadomoscf("WARN: Baza opiekunow pelna (%d), nie zapisuje PID=%d",
+            MAX_OPIEKUNOWIE, pid_opiekuna);
+        return;
+    }
+
+    baza_opiekunow.lista[baza_opiekunow.licznik].pid = pid_opiekuna;
+    baza_opiekunow.lista[baza_opiekunow.licznik].trasa = trasa;
+    baza_opiekunow.licznik++;
+}
+
+int sprawdz_trase_opiekuna(pid_t pid_opiekuna) {
+    for (int i = 0; i < baza_opiekunow.licznik; i++) {
+        if (baza_opiekunow.lista[i].pid == pid_opiekuna) {
+            return baza_opiekunow.lista[i].trasa;
+        }
+    }
+    return 0;
+}
+
+typedef struct {
+    int trasa1;
+    int trasa2;
+    int odrzuconych;
+    int dzieci_z_opiekunami;
+    int dzieci_bez_opiekunow;
+    int seniorow;
+    int powtornych;
+    int dzieci_darmo;
+} Statystyki;
+
+Statystyki statystyki = { 0 };
+
+void wyswietl_raport() {
+    loguj_wiadomosc("================================================================");
+    loguj_wiadomosc("                    RAPORT KONCOWY - KASJER                     ");
+    loguj_wiadomosc("================================================================");
+    loguj_wiadomoscf("Trasa 1 zaakceptowano:          %4d zwiedzajacych", statystyki.trasa1);
+    loguj_wiadomoscf("Trasa 2 zaakceptowano:          %4d zwiedzajacych", statystyki.trasa2);
+    loguj_wiadomoscf("Odrzucono:                       %4d zwiedzajacych", statystyki.odrzuconych);
+    loguj_wiadomosc("----------------------------------------------------------------");
+    loguj_wiadomoscf("Dzieci <8 z opiekunami:          %4d par", statystyki.dzieci_z_opiekunami);
+    loguj_wiadomoscf("Dzieci <3 (darmowy wstep):       %4d zwiedzajacych", statystyki.dzieci_darmo);
+    loguj_wiadomoscf("Dzieci odrzucone:                %4d zwiedzajacych", statystyki.dzieci_bez_opiekunow);
+    loguj_wiadomoscf("Seniorzy >75:                    %4d zwiedzajacych", statystyki.seniorow);
+    loguj_wiadomoscf("Powtorne wizyty (50%% znizka):    %4d zwiedzajacych", statystyki.powtornych);
+    loguj_wiadomosc("----------------------------------------------------------------");
+    int suma_zaakceptowanych = statystyki.trasa1 + statystyki.trasa2;
+    int suma_przetworzonych = suma_zaakceptowanych + statystyki.odrzuconych;
+    loguj_wiadomoscf("SUMA przetworzonych:             %4d zwiedzajacych", suma_przetworzonych);
+    loguj_wiadomoscf("SUMA zaakceptowanych:            %4d zwiedzajacych", suma_zaakceptowanych);
+    loguj_wiadomoscf("Wspolczynnik akceptacji:         %3d%%",
+        suma_przetworzonych > 0 ? (suma_zaakceptowanych * 100 / suma_przetworzonych) : 0);
+    loguj_wiadomosc("================================================================");
+}
+
+int sprawdz_opiekuna(pid_t pid_opiekuna) {
+    for (int retry = 0; retry < PROBY_SPRAWDZ_OPIEKUNA; retry++) {
+        if (czy_proces_zyje(pid_opiekuna)) {
+            return 1;
+        }
+        if (retry < PROBY_SPRAWDZ_OPIEKUNA - 1) {
+            usleep(100000);
+        }
+    }
+    return 0;
 }
 
 int main() {
-    /// Identyfikatory zasobów IPC
-    int shmid, semid, msgid;
+    signal(SIGTERM, obsluga_sigterm);
+    srand(time(NULL) ^ getpid());
 
-    /// Wskaźnik na pamięć współdzieloną
-    SharedMemory *shm;
+    INIT_SEMAFOR_LOG();
+    loguj_wiadomosc("START");
 
-    /// Struktura żądania od zwiedzającego
-    MessageKasjer msg_req;
+    ShmJaskinia* shm_j = NULL;
 
-    /// Struktura odpowiedzi wysyłanej do zwiedzającego
-    MessageOdpowiedz msg_resp;
-    
-    /// Rejestracja obsługi sygnału zakończenia procesu
-    signal(SIGTERM, sigterm_handler);
-    
-    /// Log startu procesu kasjera
-    log_message("KASJER", "Start procesu kasjera");
-    
-    /// Pobranie identyfikatora pamięci współdzielonej
-    shmid = shmget(SHM_KEY, sizeof(SharedMemory), 0);
-    if (shmid == -1) {
-        perror("shmget");
-        exit(1);
+    if (podlacz_shm_helper(KLUCZ_SHM_JASKINIA, (void**)&shm_j) == -1) {
+        loguj_wiadomosc("ERROR: Nie mozna podlaczyc KLUCZ_SHM_JASKINIA");
+        return 1;
     }
-    
-    /// Dołączenie pamięci współdzielonej do przestrzeni adresowej procesu
-    shm = (SharedMemory *)shmat(shmid, NULL, 0);
-    if (shm == (void *)-1) {
-        perror("shmat");
-        exit(1);
-    }
-    
-    /// Pobranie zestawu semaforów
-    semid = semget(SEM_KEY, SEM_COUNT, 0);
-    if (semid == -1) {
-        perror("semget");
-        exit(1);
-    }
-    
-    /// Otwarcie kolejki komunikatów kasjera
-    msgid = msgget(MSG_KEY_KASJER, 0);
+
+    loguj_wiadomoscf("Kasjer wystartowany PID=%d", getpid());
+
+    int msgid = podlacz_msg_helper(KLUCZ_MSG_KASJER);
     if (msgid == -1) {
-        perror("msgget");
-        exit(1);
+        loguj_wiadomosc("ERROR: Nie mozna podlaczyc KLUCZ_MSG_KASJER");
+        BEZPIECZNY_SHMDT(shm_j);
+        return 1;
     }
-    
-    /// Zapis PID kasjera w pamięci współdzielonej
-    shm->pid_kasjer = getpid();
-    
-    /// Log gotowości do obsługi zwiedzających
-    log_message("KASJER", "Kasjer gotowy do obsługi");
-    
-    /// Główna pętla pracy kasjera
-    /// Działa dopóki proces nie dostanie SIGTERM
-    /// i jaskinia jest otwarta
-    while (keep_running && shm->jaskinia_otwarta) {
 
-        /// Próba odebrania żądania z kolejki komunikatów
-        /// Tryb nieblokujący (IPC_NOWAIT)
-        if (msgrcv(msgid, &msg_req, sizeof(MessageKasjer) - sizeof(long), 
-                   MSG_TYPE_REQUEST, IPC_NOWAIT) == -1) {
+    loguj_wiadomosc("Gotowy: kolejka priorytetowa (powtorne > zwykle)");
+    loguj_wiadomosc("Sledzenie tras opiekunow wlaczone");
 
-            /// Brak wiadomości – chwilowy sleep i ponowna próba
-            if (errno == ENOMSG) {
-                usleep(100000);
+    WiadomoscKasjer zadanie;
+    WiadomoscOdpowiedz odpowiedz;
+
+    while (kontynuuj) {
+        pthread_mutex_lock(&shm_j->mutex);
+        int otwarta = shm_j->otwarta;
+        pthread_mutex_unlock(&shm_j->mutex);
+
+        if (!otwarta) {
+            loguj_wiadomosc("Jaskinia zamknieta, czekam na SIGTERM");
+            while (kontynuuj) sleep(1);
+            break;
+        }
+
+        int otrzymano = 0;
+
+        if (msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
+            TYP_MSG_POWTORNA, IPC_NOWAIT) != -1) {
+            otrzymano = 1;
+            statystyki.powtornych++;
+        }
+        else if (msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
+            TYP_MSG_ZADANIE, IPC_NOWAIT) != -1) {
+            otrzymano = 1;
+        }
+        else if (errno == ENOMSG) {
+            struct timespec timeout;
+            timeout.tv_sec = 1;
+            timeout.tv_nsec = 0;
+
+            ssize_t wynik = msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
+                0, 0);
+
+            if (wynik != -1) {
+                otrzymano = 1;
+                if (zadanie.mtype == TYP_MSG_POWTORNA) {
+                    statystyki.powtornych++;
+                }
+            }
+            else if (errno == EINTR) {
                 continue;
             }
-
-            /// Przerwanie przez sygnał – wracamy do pętli
-            if (errno == EINTR) {
-                continue;
+            else if (errno == EIDRM) {
+                loguj_wiadomosc("Kolejka usunieta, zamykam");
+                break;
             }
+        }
 
-            /// Inny błąd odbioru komunikatu
-            perror("msgrcv kasjer");
+        if (!otrzymano) {
+            if (errno != ENOMSG && errno != EINTR) {
+                loguj_wiadomoscf("ERROR: msgrcv: %s", strerror(errno));
+                usleep(INTERWAL_POLLING * 1000);
+            }
             continue;
         }
-        
-        /// Log odebranego żądania
-        log_formatted("KASJER", "Otrzymano żądanie od PID %d, wiek: %d, powtórna: %d",
-                     msg_req.pid_zwiedzajacego, msg_req.wiek, msg_req.powtorna_wizyta);
-        
-        /// Domyślna decyzja – odrzucenie
+
         int decyzja = DECYZJA_ODRZUCONY;
-
-        /// Numer przydzielonej trasy (1 lub 2)
         int trasa = 0;
-        
-        /// Dzieci poniżej 3 lat
-        /// Wstęp darmowy, ale tylko z opiekunem
-        if (msg_req.wiek < 3) {
-            if (!msg_req.ma_opiekuna) {
-                log_formatted("KASJER", "ODRZUCONO: Dziecko < 3 lat bez opiekuna (PID: %d)", 
-                             msg_req.pid_zwiedzajacego);
-                decyzja = DECYZJA_ODRZUCONY;
-            } else {
-                /// Dziecko z opiekunem – tylko trasa 2
-                decyzja = DECYZJA_TRASA2;
-                trasa = 2;
+
+        if (zadanie.wiek < 8) {
+            if (zadanie.pid_opiekuna > 0 && sprawdz_opiekuna(zadanie.pid_opiekuna)) {
+                int trasa_opiekuna = sprawdz_trase_opiekuna(zadanie.pid_opiekuna);
+
+                if (trasa_opiekuna > 0) {
+                    trasa = trasa_opiekuna;
+                    decyzja = (trasa == 1) ? DECYZJA_TRASA1 : DECYZJA_TRASA2;
+
+                    if (zadanie.wiek < 3) {
+                        statystyki.dzieci_darmo++;
+                    }
+                    statystyki.dzieci_z_opiekunami++;
+                }
+                else {
+                    loguj_wiadomoscf("REJECT: PID=%d dziecko<%d opiekun=%d nie przetworzony jeszcze",
+                        zadanie.pid_zwiedzajacego, zadanie.wiek, zadanie.pid_opiekuna);
+                    statystyki.dzieci_bez_opiekunow++;
+                }
+            }
+            else {
+                loguj_wiadomoscf("REJECT: PID=%d dziecko<%d %s",
+                    zadanie.pid_zwiedzajacego, zadanie.wiek,
+                    zadanie.pid_opiekuna > 0 ? "opiekun nie istnieje" : "bez opiekuna");
+                statystyki.dzieci_bez_opiekunow++;
             }
         }
-
-        /// Dzieci w wieku 3–7 lat
-        /// Zawsze wymagany opiekun, tylko trasa 2
-        else if (msg_req.wiek >= 3 && msg_req.wiek < 8) {
-            if (!msg_req.ma_opiekuna) {
-                log_formatted("KASJER", "ODRZUCONO: Dziecko < 8 lat bez opiekuna (PID: %d)", 
-                             msg_req.pid_zwiedzajacego);
-                decyzja = DECYZJA_ODRZUCONY;
-            } else {
-                decyzja = DECYZJA_TRASA2;
-                trasa = 2;
-            }
-        }
-
-        /// Osoby powyżej 75 roku życia
-        /// Bezpieczna opcja – tylko trasa 2
-        else if (msg_req.wiek > 75) {
+        else if (zadanie.wiek > 75) {
             decyzja = DECYZJA_TRASA2;
             trasa = 2;
+            statystyki.seniorow++;
         }
-
-        /// Zwiedzający na powtórnej wizycie
-        /// Dostaje inną trasę niż poprzednio
-        else if (msg_req.powtorna_wizyta) {
-            if (msg_req.poprzednia_trasa == 1) {
-                decyzja = DECYZJA_TRASA2;
-                trasa = 2;
-            } else {
-                decyzja = DECYZJA_TRASA1;
-                trasa = 1;
+        else if (zadanie.powtorna_wizyta) {
+            if (zadanie.poprzednia_trasa >= 1 && zadanie.poprzednia_trasa <= 2) {
+                trasa = (zadanie.poprzednia_trasa == 1) ? 2 : 1;
+                decyzja = (trasa == 1) ? DECYZJA_TRASA1 : DECYZJA_TRASA2;
             }
-
-            /// Log decyzji dla powtórnej wizyty
-            log_formatted("KASJER", "Powtórna wizyta: poprzednia trasa %d, nowa trasa %d (PID: %d)",
-                         msg_req.poprzednia_trasa, trasa, msg_req.pid_zwiedzajacego);
+            else {
+                loguj_wiadomoscf("REJECT: Nieprawidlowa poprzednia trasa=%d", zadanie.poprzednia_trasa);
+            }
         }
-
-        /// Osoby w wieku 8–75 lat
-        /// Losowy przydział jednej z tras
         else {
             trasa = (rand() % 2) + 1;
             decyzja = (trasa == 1) ? DECYZJA_TRASA1 : DECYZJA_TRASA2;
+
+            if (zadanie.wiek >= MIN_WIEK_OPIEKUNA && zadanie.wiek <= MAX_WIEK_OPIEKUNA) {
+                zapisz_trase_opiekuna(zadanie.pid_zwiedzajacego, trasa);
+            }
         }
-        
-        /// Przygotowanie odpowiedzi do zwiedzającego
-        /// Typ komunikatu = PID odbiorcy
-        msg_resp.mtype = msg_req.pid_zwiedzajacego;
-        msg_resp.decyzja = decyzja;
-        msg_resp.przydzielona_trasa = trasa;
-        
-        /// Wysłanie odpowiedzi przez kolejkę komunikatów
-        if (msgsnd(msgid, &msg_resp, sizeof(MessageOdpowiedz) - sizeof(long), 0) == -1) {
-            perror("msgsnd odpowiedz");
-            continue;
+
+        odpowiedz.mtype = zadanie.pid_zwiedzajacego;
+        odpowiedz.decyzja = decyzja;
+        odpowiedz.przydzielona_trasa = trasa;
+
+        if (msgsnd(msgid, &odpowiedz, sizeof(WiadomoscOdpowiedz) - sizeof(long), 0) != -1) {
+            if (decyzja != DECYZJA_ODRZUCONY) {
+                loguj_wiadomoscf("ACCEPT: PID=%d trasa=%d", zadanie.pid_zwiedzajacego, trasa);
+
+                if (trasa == 1) {
+                    statystyki.trasa1++;
+                }
+                else if (trasa == 2) {
+                    statystyki.trasa2++;
+                }
+            }
+            else {
+                statystyki.odrzuconych++;
+            }
         }
-        
-        /// Log akceptacji zwiedzającego
-        if (decyzja != DECYZJA_ODRZUCONY) {
-            log_formatted("KASJER", "ZAAKCEPTOWANO: PID %d, wiek: %d -> trasa %d",
-                         msg_req.pid_zwiedzajacego, msg_req.wiek, trasa);
+        else {
+            loguj_wiadomoscf("ERROR: msgsnd odpowiedz: %s", strerror(errno));
         }
     }
-    
-    /// Log zakończenia pracy kasjera
-    log_message("KASJER", "Kasjer kończy pracę");
-    
-    /// Odłączenie pamięci współdzielonej
-    shmdt(shm);
 
-    /// Normalne zakończenie procesu
+    loguj_wiadomosc("================================================================");
+    loguj_wiadomosc("Jaskinia zamknieta, generuje raport koncowy");
+    wyswietl_raport();
+
+    loguj_wiadomosc("SHUTDOWN");
+    BEZPIECZNY_SHMDT(shm_j);
     return 0;
 }

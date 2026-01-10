@@ -1,306 +1,280 @@
 #include "common.h"
+#include "common_helpers.h"
+#include "przewodnik_helpers.h"
 
-/// Flaga informująca o otrzymaniu sygnału zamknięcia trasy
-/// Ustawiana w handlerze SIGUSR1 / SIGUSR2
+volatile sig_atomic_t kontynuuj = 1;
 volatile sig_atomic_t zamkniecie_otrzymane = 0;
+volatile sig_atomic_t na_trasie = 0;
+volatile sig_atomic_t alarm_otrzymany = 0;
 
-/// Flaga sterująca główną pętlą programu
-/// Zerowana po otrzymaniu SIGTERM (grzeczne zakończenie procesu)
-volatile sig_atomic_t keep_running = 1;
+void obsluga_sigterm(int sig) { kontynuuj = 0; }
+void obsluga_zamkniecie(int sig) { zamkniecie_otrzymane = 1; }
+void obsluga_alarm(int sig) { alarm_otrzymany = 1; }
 
-/// Handler sygnału użytkownika (SIGUSR1 lub SIGUSR2)
-/// Informuje przewodnika o konieczności zakończenia przyjmowania nowych grup
-void sigusr_handler(int sig) {
-    zamkniecie_otrzymane = 1;
+int NUMER;
+
+void loguj_wiadomosc(const char* wiadomosc) {
+    char nazwa_pliku[64];
+    snprintf(nazwa_pliku, sizeof(nazwa_pliku), "jaskinia_przewodnik%d.log", NUMER);
+
+    int sem_zdobyty = 0;
+    char ts[64], buf[512];
+
+    if (globalny_semid_log != -1) {
+        struct sembuf op = { 0, -1, 0 };
+        if (bezpieczny_semop(globalny_semid_log, &op, 1) == 0) {
+            sem_zdobyty = 1;
+        }
+    }
+
+    time_t teraz = time(NULL);
+    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&teraz));
+    snprintf(buf, sizeof(buf), "[%s] [PID:%d] [PRZEWODNIK%d] %s\n", ts, getpid(), NUMER, wiadomosc);
+
+    int fd = open("jaskinia_common.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        bezpieczny_zapis_wszystko(fd, buf, strlen(buf));
+        close(fd);
+    }
+
+    fd = open(nazwa_pliku, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        bezpieczny_zapis_wszystko(fd, buf, strlen(buf));
+        close(fd);
+    }
+
+    if (sem_zdobyty) {
+        struct sembuf op = { 0, 1, 0 };
+        bezpieczny_semop(globalny_semid_log, &op, 1);
+    }
 }
 
-/// Handler SIGTERM
-/// Powoduje zakończenie głównej pętli i poprawne wyjście z programu
-void sigterm_handler(int sig) {
-    keep_running = 0;
+void loguj_wiadomoscf(const char* format, ...) {
+    char wiadomosc[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(wiadomosc, sizeof(wiadomosc), format, args);
+    va_end(args);
+    loguj_wiadomosc(wiadomosc);
 }
 
 int main(int argc, char* argv[]) {
-
-    /// Sprawdzenie poprawności argumentów wejściowych
-    /// Program wymaga numeru trasy (1 lub 2)
     if (argc != 2) {
-        fprintf(stderr, "Użycie: %s <numer_trasy>\n", argv[0]);
-        exit(1);
+        fprintf(stderr, "Uzycie: %s <1|2>\n", argv[0]);
+        return 1;
     }
 
-    int numer_trasy = atoi(argv[1]);
+    int tmp;
+    if (bezpieczny_strtol(argv[1], &tmp, 1, 2) != 0) {
+        fprintf(stderr, "ERROR: Numer musi byc 1 lub 2\n");
+        return 1;
+    }
+    NUMER = tmp;
 
-    /// Walidacja numeru trasy
-    if (numer_trasy != 1 && numer_trasy != 2) {
-        fprintf(stderr, "Numer trasy musi być 1 lub 2\n");
-        exit(1);
+    signal(SIGTERM, obsluga_sigterm);
+    signal(NUMER == 1 ? SIGUSR1 : SIGUSR2, obsluga_zamkniecie);
+    signal(SIGALRM, obsluga_alarm);
+
+    INIT_SEMAFOR_LOG();
+
+    loguj_wiadomosc("START");
+    loguj_wiadomoscf("Obsluguje %s", NUMER == 1 ? "SIGUSR1" : "SIGUSR2");
+
+    srand(time(NULL) ^ getpid());
+
+    ShmJaskinia* shm_j = NULL;
+    ShmKladka* shm_k1 = NULL;
+    ShmKladka* shm_k2 = NULL;
+    ShmTrasa* shm_t = NULL;
+
+    if (podlacz_shm_helper(KLUCZ_SHM_JASKINIA, (void**)&shm_j) == -1 ||
+        podlacz_shm_helper(KLUCZ_SHM_KLADKA1, (void**)&shm_k1) == -1 ||
+        podlacz_shm_helper(KLUCZ_SHM_KLADKA2, (void**)&shm_k2) == -1 ||
+        podlacz_shm_helper(NUMER == 1 ? KLUCZ_SHM_TRASA1 : KLUCZ_SHM_TRASA2, (void**)&shm_t) == -1) {
+        loguj_wiadomosc("ERROR: Nie mozna podlaczyc pamieci wspoldzielonej");
+        BEZPIECZNY_SHMDT(shm_j);
+        BEZPIECZNY_SHMDT(shm_k1);
+        BEZPIECZNY_SHMDT(shm_k2);
+        BEZPIECZNY_SHMDT(shm_t);
+        return 1;
     }
 
-    /// Identyfikatory zasobów IPC
-    int shmid, semid, msgid;
+    loguj_wiadomoscf("Przewodnik %d wystartowany PID=%d", NUMER, getpid());
 
-    /// Wskaźnik do pamięci współdzielonej
-    SharedMemory* shm;
+    int sem1_miejsca = podlacz_sem_helper(KLUCZ_SEM_KLADKA1_MIEJSCA);
+    int sem2_miejsca = podlacz_sem_helper(KLUCZ_SEM_KLADKA2_MIEJSCA);
+    int sem_trasa_mutex = podlacz_sem_helper(NUMER == 1 ? KLUCZ_SEM_TRASA1_MUTEX : KLUCZ_SEM_TRASA2_MUTEX);
+    int msgid = podlacz_msg_helper(NUMER == 1 ? KLUCZ_MSG_PRZEWODNIK1 : KLUCZ_MSG_PRZEWODNIK2);
 
-    /// Struktura komunikatu odbieranego od zwiedzających
-    MessagePrzewodnik msg;
-
-    /// Nazwa procesu używana w systemie logowania
-    char process_name[32];
-    snprintf(process_name, sizeof(process_name), "PRZEWODNIK%d", numer_trasy);
-
-    /// Rejestracja obsługi sygnałów
-    /// Każda trasa reaguje na inny sygnał użytkownika
-    if (numer_trasy == 1) {
-        signal(SIGUSR1, sigusr_handler);
-    }
-    else {
-        signal(SIGUSR2, sigusr_handler);
+    if (sem1_miejsca == -1 || sem2_miejsca == -1 || sem_trasa_mutex == -1 || msgid == -1) {
+        loguj_wiadomosc("ERROR: Nie mozna podlaczyc semaforow lub kolejki");
+        BEZPIECZNY_SHMDT(shm_j);
+        BEZPIECZNY_SHMDT(shm_k1);
+        BEZPIECZNY_SHMDT(shm_k2);
+        BEZPIECZNY_SHMDT(shm_t);
+        return 1;
     }
 
-    /// Obsługa sygnału zakończenia procesu
-    signal(SIGTERM, sigterm_handler);
+    int max_osoby = (NUMER == 1) ? N1 : N2;
+    int czas = (NUMER == 1) ? T1 : T2;
 
-    log_formatted(process_name, "Start przewodnika trasy %d", numer_trasy);
+    loguj_wiadomoscf("Gotowy: max=%d czas=%ds K=%d", max_osoby, czas, K);
 
-    /// Podłączenie do segmentu pamięci współdzielonej
-    shmid = shmget(SHM_KEY, sizeof(SharedMemory), 0);
-    if (shmid == -1) {
-        perror("shmget");
-        exit(1);
-    }
+    WiadomoscPrzewodnik wiadomosc;
 
-    shm = (SharedMemory*)shmat(shmid, NULL, 0);
-    if (shm == (void*)-1) {
-        perror("shmat");
-        exit(1);
-    }
+    while (kontynuuj) {
+        pthread_mutex_lock(&shm_j->mutex);
+        int otwarta = shm_j->otwarta;
+        pthread_mutex_unlock(&shm_j->mutex);
 
-    /// Podłączenie do zestawu semaforów
-    semid = semget(SEM_KEY, SEM_COUNT, 0);
-    if (semid == -1) {
-        perror("semget");
-        exit(1);
-    }
-
-    /// Podłączenie do odpowiedniej kolejki komunikatów
-    /// oraz zapis PID przewodnika w pamięci współdzielonej
-    if (numer_trasy == 1) {
-        msgid = msgget(MSG_KEY_PRZEWODNIK1, 0);
-        shm->pid_przewodnik1 = getpid();
-    }
-    else {
-        msgid = msgget(MSG_KEY_PRZEWODNIK2, 0);
-        shm->pid_przewodnik2 = getpid();
-    }
-
-    if (msgid == -1) {
-        perror("msgget");
-        exit(1);
-    }
-
-    /// Parametry zależne od wybranej trasy
-    int max_osoby = (numer_trasy == 1) ? N1 : N2;
-    int czas_zwiedzania = (numer_trasy == 1) ? T1 : T2;
-    int sem_mutex_trasa = (numer_trasy == 1) ? SEM_MUTEX_TRASA1 : SEM_MUTEX_TRASA2;
-
-    log_formatted(process_name,
-        "Przewodnik gotowy (max osób: %d, czas: %ds)",
-        max_osoby, czas_zwiedzania);
-
-    /// Główna pętla pracy przewodnika
-    /// Działa dopóki:
-    /// - proces nie otrzyma SIGTERM
-    /// - jaskinia jest otwarta lub trwa obsługa ostatniej grupy
-    while (keep_running && (shm->jaskinia_otwarta || !zamkniecie_otrzymane)) {
-
-        /// Jeśli otrzymano sygnał zamknięcia przed zebraniem grupy
-        /// nie przyjmuj nowych zwiedzających
-        if (zamkniecie_otrzymane) {
-            log_formatted(process_name,
-                "Otrzymano sygnał zamknięcia, nie przyjmuję nowych grup");
+        if (!otwarta) {
+            loguj_wiadomosc("Jaskinia zamknieta, czekam na SIGTERM");
+            while (kontynuuj) sleep(1);
             break;
         }
 
-        /// Bufor PID-ów zwiedzających w aktualnej grupie
         pid_t grupa[max_osoby];
-        int liczba_w_grupie = 0;
+        int liczba = 0;
 
-        log_formatted(process_name,
-            "Zbieranie grupy (max %d osób)...", max_osoby);
+        loguj_wiadomosc("Zbieram grupe");
 
-        /// Zbieranie grupy maksymalnie przez 5 sekund
-        time_t start_collecting = time(NULL);
-        while (liczba_w_grupie < max_osoby &&
-            difftime(time(NULL), start_collecting) < 5 &&
-            !zamkniecie_otrzymane) {
+        alarm_otrzymany = 0;
+        alarm(CZAS_ZBIERANIA_GRUPY);
 
-            /// Odbiór komunikatu od zwiedzającego (nieblokujący)
-            if (msgrcv(msgid, &msg,
-                sizeof(MessagePrzewodnik) - sizeof(long),
-                MSG_TYPE_ZWIEDZAJACY, IPC_NOWAIT) != -1) {
+        while (liczba < max_osoby && !alarm_otrzymany) {
+            ssize_t wynik = msgrcv(msgid, &wiadomosc, sizeof(WiadomoscPrzewodnik) - sizeof(long),
+                TYP_MSG_ZWIEDZAJACY, 0);
 
-                grupa[liczba_w_grupie++] = msg.pid_zwiedzajacego;
-
-                log_formatted(process_name,
-                    "Dołączył zwiedzający PID %d (%d/%d)",
-                    msg.pid_zwiedzajacego,
-                    liczba_w_grupie, max_osoby);
+            if (wynik != -1) {
+                grupa[liczba++] = wiadomosc.pid_zwiedzajacego;
             }
-            else {
-                usleep(100000);   /// Krótka pauza (100 ms)
+            else if (errno == EINTR) {
+                if (alarm_otrzymany) {
+                    break;
+                }
+                continue;
+            }
+            else if (errno == EIDRM) {
+                loguj_wiadomosc("Kolejka usunieta, zamykam");
+                alarm(0);
+                goto cleanup;
             }
         }
 
-        /// Jeśli nie udało się zebrać żadnej osoby – spróbuj ponownie
-        if (liczba_w_grupie == 0) {
+        alarm(0);
+
+        if (liczba == 0) {
             usleep(500000);
             continue;
         }
 
-        /// Jeśli w trakcie zbierania grupy otrzymano sygnał zamknięcia
-        /// grupa jest odrzucana
-        if (zamkniecie_otrzymane) {
-            log_formatted(process_name,
-                "Sygnał zamknięcia podczas zbierania, odrzucam grupę %d osób",
-                liczba_w_grupie);
+        loguj_wiadomoscf("Grupa zebrana: %d zwiedzajacych", liczba);
 
-            /// Powiadom zwiedzających o zakończeniu (sygnał)
-            for (int i = 0; i < liczba_w_grupie; i++) {
-                kill(grupa[i], SIGUSR1);
+        sigset_t maska, stara_maska;
+        sigemptyset(&maska);
+        sigaddset(&maska, NUMER == 1 ? SIGUSR1 : SIGUSR2);
+        sigprocmask(SIG_BLOCK, &maska, &stara_maska);
+
+        int czy_odwolac = (zamkniecie_otrzymane && !na_trasie);
+        sigprocmask(SIG_SETMASK, &stara_maska, NULL);
+
+        if (czy_odwolac) {
+            loguj_wiadomoscf("Sygnal zamkniecia przed trasa - odwoluje grupe %d osob", liczba);
+            for (int i = 0; i < liczba; i++) {
+                if (czy_proces_zyje(grupa[i])) kill(grupa[i], SIGUSR1);
             }
-            break;
+            continue;
         }
 
-        log_formatted(process_name,
-            "Zebrano grupę %d osób, rozpoczynam wycieczkę",
-            liczba_w_grupie);
+        wyslij_sygnal_do_grupy(grupa, liczba, SIGRTMIN + 0, "grupa zebrana");
 
-        /// Oczekiwanie na zwolnienie kładki
-        sem_wait(semid, SEM_MUTEX_KLADKA);
-        while (shm->osoby_na_kladce > 0 ||
-            shm->kierunek_kladki == KIERUNEK_WYJSCIE) {
+        loguj_wiadomosc("Rezerwuje miejsca na trasie");
 
-            sem_signal(semid, SEM_MUTEX_KLADKA);
-            usleep(100000);
-            sem_wait(semid, SEM_MUTEX_KLADKA);
-        }
+        bezpieczny_sem_wait(sem_trasa_mutex, 0);
+        int poprzednia_wartosc = shm_t->osoby;
+        int nowa_wartosc = poprzednia_wartosc + liczba;
 
-        /// Ustawienie kierunku ruchu na wejście
-        shm->kierunek_kladki = KIERUNEK_WEJSCIE;
-        sem_signal(semid, SEM_MUTEX_KLADKA);
+        if (nowa_wartosc > max_osoby) {
+            int dozwolone = max_osoby - poprzednia_wartosc;
+            if (dozwolone < 0) dozwolone = 0;
 
-        log_formatted(process_name,
-            "Kładka wolna, wpuszczam grupę...");
+            loguj_wiadomoscf("WARN: Limit trasy Ni=%d! bylo=%d dozwolone=%d", max_osoby, poprzednia_wartosc, dozwolone);
 
-        /// Przeprowadzanie zwiedzających przez kładkę
-        for (int i = 0; i < liczba_w_grupie; i++) {
+            shm_t->osoby = max_osoby;
+            bezpieczny_sem_signal(sem_trasa_mutex, 0);
 
-            sem_wait(semid, SEM_MIEJSCA_KLADKA);
+            for (int i = dozwolone; i < liczba; i++) {
+                if (czy_proces_zyje(grupa[i])) {
+                    kill(grupa[i], SIGUSR1);
+                    loguj_wiadomoscf("Odrzucono PID=%d (przekroczenie limitu)", grupa[i]);
+                }
+            }
 
-            sem_wait(semid, SEM_MUTEX_KLADKA);
-            shm->osoby_na_kladce++;
-            sem_signal(semid, SEM_MUTEX_KLADKA);
-
-            usleep(200000);   /// Symulacja przechodzenia
-
-            sem_wait(semid, SEM_MUTEX_KLADKA);
-            shm->osoby_na_kladce--;
-            sem_signal(semid, SEM_MUTEX_KLADKA);
-
-            sem_signal(semid, SEM_MIEJSCA_KLADKA);
-        }
-
-        /// Aktualizacja liczby osób znajdujących się na trasie
-        sem_wait(semid, sem_mutex_trasa);
-        if (numer_trasy == 1) {
-            shm->osoby_na_trasie1 += liczba_w_grupie;
-            log_formatted(process_name,
-                "Na trasie 1: %d osób", shm->osoby_na_trasie1);
+            liczba = dozwolone;
+            if (liczba == 0) {
+                loguj_wiadomosc("Cala grupa odrzucona - limit trasy osiagniety");
+                continue;
+            }
         }
         else {
-            shm->osoby_na_trasie2 += liczba_w_grupie;
-            log_formatted(process_name,
-                "Na trasie 2: %d osób", shm->osoby_na_trasie2);
-        }
-        sem_signal(semid, sem_mutex_trasa);
-
-        /// Reset kierunku kładki
-        sem_wait(semid, SEM_MUTEX_KLADKA);
-        shm->kierunek_kladki = KIERUNEK_PUSTY;
-        sem_signal(semid, SEM_MUTEX_KLADKA);
-
-        /// Symulacja zwiedzania trasy
-        log_formatted(process_name,
-            "Grupa zwiedza trasę %d (%ds)...",
-            numer_trasy, czas_zwiedzania);
-
-        sleep(czas_zwiedzania);
-
-        /// Wypuszczanie grupy z jaskini (analogicznie jak wejście)
-        log_formatted(process_name,
-            "Zwiedzanie zakończone, wypuszczam grupę...");
-
-        sem_wait(semid, SEM_MUTEX_KLADKA);
-        while (shm->osoby_na_kladce > 0 ||
-            shm->kierunek_kladki == KIERUNEK_WEJSCIE) {
-
-            sem_signal(semid, SEM_MUTEX_KLADKA);
-            usleep(100000);
-            sem_wait(semid, SEM_MUTEX_KLADKA);
+            shm_t->osoby = nowa_wartosc;
+            bezpieczny_sem_signal(sem_trasa_mutex, 0);
         }
 
-        shm->kierunek_kladki = KIERUNEK_WYJSCIE;
-        sem_signal(semid, SEM_MUTEX_KLADKA);
+        loguj_wiadomoscf("Trasa zarezerwowana: bylo=%d teraz=%d/%d", poprzednia_wartosc, nowa_wartosc, max_osoby);
 
-        for (int i = 0; i < liczba_w_grupie; i++) {
+        loguj_wiadomosc("Blokuje kladki (WEJSCIE)");
+        zablokuj_obie_kladki(shm_k1, shm_k2, KIERUNEK_WEJSCIE);
 
-            sem_wait(semid, SEM_MIEJSCA_KLADKA);
+        int na_k1 = liczba / 2;
+        int na_k2 = liczba - na_k1;
 
-            sem_wait(semid, SEM_MUTEX_KLADKA);
-            shm->osoby_na_kladce++;
-            sem_signal(semid, SEM_MUTEX_KLADKA);
+        loguj_wiadomosc("Przeprowadzam grupe (WEJSCIE)");
+        wyslij_sygnal_do_grupy(grupa, liczba, SIGRTMIN + 1, "przechodzenie");
 
-            usleep(200000);
+        if (na_k1 > 0) przeprowadz_przez_kladke(na_k1, shm_k1, sem1_miejsca, 1, 0, NULL, "WEJSCIE");
+        if (na_k2 > 0) przeprowadz_przez_kladke(na_k2, shm_k2, sem2_miejsca, 2, 0, NULL, "WEJSCIE");
 
-            sem_wait(semid, SEM_MUTEX_KLADKA);
-            shm->osoby_na_kladce--;
-            sem_signal(semid, SEM_MUTEX_KLADKA);
+        loguj_wiadomosc("Zwalniam kladki (inne grupy moga przechodzic)");
+        zwolnij_obie_kladki(shm_k1, shm_k2);
 
-            sem_signal(semid, SEM_MIEJSCA_KLADKA);
+        loguj_wiadomoscf("Zwiedzanie rozpoczete: trasa=%d czas=%ds", NUMER, czas);
 
-            /// Powiadomienie zwiedzającego o możliwości opuszczenia jaskini
-            kill(grupa[i], SIGUSR2);
-        }
+        sigprocmask(SIG_BLOCK, &maska, &stara_maska);
+        na_trasie = 1;
+        sigprocmask(SIG_SETMASK, &stara_maska, NULL);
 
-        /// Aktualizacja liczby osób na trasie po wyjściu grupy
-        sem_wait(semid, sem_mutex_trasa);
-        if (numer_trasy == 1) {
-            shm->osoby_na_trasie1 -= liczba_w_grupie;
-        }
-        else {
-            shm->osoby_na_trasie2 -= liczba_w_grupie;
-        }
-        sem_signal(semid, sem_mutex_trasa);
+        wyslij_sygnal_do_grupy(grupa, liczba, SIGRTMIN + 2, "zwiedzanie");
+        sleep(czas);
 
-        sem_wait(semid, SEM_MUTEX_KLADKA);
-        shm->kierunek_kladki = KIERUNEK_PUSTY;
-        sem_signal(semid, SEM_MUTEX_KLADKA);
+        sigprocmask(SIG_BLOCK, &maska, &stara_maska);
+        na_trasie = 0;
+        sigprocmask(SIG_SETMASK, &stara_maska, NULL);
 
-        log_formatted(process_name,
-            "Grupa opuściła jaskinię");
+        loguj_wiadomosc("Zwiedzanie zakonczone - wracamy");
 
-        if (zamkniecie_otrzymane) {
-            break;
-        }
+        loguj_wiadomosc("Blokuje kladki (WYJSCIE)");
+        zablokuj_obie_kladki(shm_k1, shm_k2, KIERUNEK_WYJSCIE);
+
+        loguj_wiadomosc("Przeprowadzam grupe (WYJSCIE)");
+        if (na_k1 > 0) przeprowadz_przez_kladke(na_k1, shm_k1, sem1_miejsca, 1, 0, grupa, "WYJSCIE");
+        if (na_k2 > 0) przeprowadz_przez_kladke(na_k2, shm_k2, sem2_miejsca, 2, na_k1, grupa, "WYJSCIE");
+
+        loguj_wiadomosc("Zwalniam kladki i grupe");
+        zwolnij_obie_kladki(shm_k1, shm_k2);
+
+        bezpieczny_sem_wait(sem_trasa_mutex, 0);
+        shm_t->osoby -= liczba;
+        bezpieczny_sem_signal(sem_trasa_mutex, 0);
+
+        loguj_wiadomoscf("Wycieczka zakonczona: trasa=%d zwiedzajacych=%d", NUMER, liczba);
     }
 
-    log_formatted(process_name,
-        "Przewodnik kończy pracę");
-
-    /// Odłączenie pamięci współdzielonej
-    shmdt(shm);
-
+cleanup:
+    loguj_wiadomosc("SHUTDOWN");
+    BEZPIECZNY_SHMDT(shm_j);
+    BEZPIECZNY_SHMDT(shm_k1);
+    BEZPIECZNY_SHMDT(shm_k2);
+    BEZPIECZNY_SHMDT(shm_t);
     return 0;
 }

@@ -1,219 +1,266 @@
 #include "common.h"
+#include "common_helpers.h"
 
-/// Flaga ustawiana sygnałem SIGUSR1 – zwiedzający został odrzucony
-volatile sig_atomic_t odrzucony = 0;
-
-/// Flaga ustawiana sygnałem SIGUSR2 – zwiedzający może zakończyć wizytę
+volatile sig_atomic_t odwolano = 0;
+volatile sig_atomic_t w_grupie = 0;
+volatile sig_atomic_t na_kladce = 0;
+volatile sig_atomic_t zwiedzam = 0;
 volatile sig_atomic_t moze_wyjsc = 0;
+volatile sig_atomic_t alarm_otrzymany = 0;
 
-/// Obsługa sygnału SIGUSR1 – informacja o odrzuceniu zwiedzającego
-void sigusr1_handler(int sig) {
-    odrzucony = 1;
+void obsluga_sigusr1(int sig) { odwolano = 1; }
+void obsluga_sigrtmin0(int sig) { w_grupie = 1; }
+void obsluga_sigrtmin1(int sig) { na_kladce = 1; }
+void obsluga_sigrtmin2(int sig) { zwiedzam = 1; }
+void obsluga_sigusr2(int sig) { moze_wyjsc = 1; }
+void obsluga_alarm(int sig) { alarm_otrzymany = 1; }
+
+void loguj_wiadomosc(const char* wiadomosc) {
+    int sem_zdobyty = 0;
+    char ts[64], buf[512];
+
+    if (globalny_semid_log != -1) {
+        struct sembuf op = { 0, -1, 0 };
+        if (bezpieczny_semop(globalny_semid_log, &op, 1) == 0) {
+            sem_zdobyty = 1;
+        }
+    }
+
+    time_t teraz = time(NULL);
+    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&teraz));
+    snprintf(buf, sizeof(buf), "[%s] [PID:%d] [ZWIEDZAJACY] %s\n", ts, getpid(), wiadomosc);
+
+    int fd = open("jaskinia_common.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        bezpieczny_zapis_wszystko(fd, buf, strlen(buf));
+        close(fd);
+    }
+
+    fd = open("jaskinia_zwiedzajacy.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        bezpieczny_zapis_wszystko(fd, buf, strlen(buf));
+        close(fd);
+    }
+
+    if (sem_zdobyty) {
+        struct sembuf op = { 0, 1, 0 };
+        bezpieczny_semop(globalny_semid_log, &op, 1);
+    }
 }
 
-/// Obsługa sygnału SIGUSR2 – informacja o zakończeniu wycieczki
-void sigusr2_handler(int sig) {
-    moze_wyjsc = 1;
+void loguj_wiadomoscf(const char* format, ...) {
+    char wiadomosc[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(wiadomosc, sizeof(wiadomosc), format, args);
+    va_end(args);
+    loguj_wiadomosc(wiadomosc);
 }
 
 int main(int argc, char* argv[]) {
-
-    /// Sprawdzenie poprawności liczby argumentów wejściowych
-    if (argc != 4) {
-        fprintf(stderr, "Użycie: %s <wiek> <powtorna_wizyta> <poprzednia_trasa>\n", argv[0]);
-        exit(1);
+    if (argc != 6) {
+        fprintf(stderr, "Uzycie: %s <wiek> <powtorna> <poprz_trasa> <pid_opiekuna> <czy_opiekun>\n", argv[0]);
+        return 1;
     }
 
-    /// Pobranie parametrów zwiedzającego z linii poleceń
-    int wiek = atoi(argv[1]);
-    int powtorna_wizyta = atoi(argv[2]);
-    int poprzednia_trasa = atoi(argv[3]);
+    int wiek, powtorna, poprz_trasa, pid_opiekuna, czy_opiekun;
 
-    /// Identyfikatory zasobów IPC
-    int shmid, semid, msgid_kasjer, msgid_przewodnik;
+    if (bezpieczny_strtol(argv[1], &wiek, MIN_WIEK, MAX_WIEK) != 0 ||
+        bezpieczny_strtol(argv[2], &powtorna, 0, 1) != 0 ||
+        bezpieczny_strtol(argv[3], &poprz_trasa, 1, 2) != 0 ||
+        bezpieczny_strtol(argv[4], &pid_opiekuna, 0, INT_MAX) != 0 ||
+        bezpieczny_strtol(argv[5], &czy_opiekun, 0, 1) != 0) {
+        fprintf(stderr, "ERROR: Nieprawidlowe argumenty\n");
+        return 1;
+    }
 
-    /// Wskaźnik do pamięci współdzielonej
-    SharedMemory* shm;
+    signal(SIGUSR1, obsluga_sigusr1);
+    signal(SIGRTMIN + 0, obsluga_sigrtmin0);
+    signal(SIGRTMIN + 1, obsluga_sigrtmin1);
+    signal(SIGRTMIN + 2, obsluga_sigrtmin2);
+    signal(SIGUSR2, obsluga_sigusr2);
+    signal(SIGALRM, obsluga_alarm);
 
-    /// Struktury komunikatów IPC
-    MessageKasjer msg_req;
-    MessageOdpowiedz msg_resp;
-    MessagePrzewodnik msg_przewodnik;
+    INIT_SEMAFOR_LOG();
 
-    /// Rejestracja obsługi sygnałów
-    signal(SIGUSR1, sigusr1_handler);
-    signal(SIGUSR2, sigusr2_handler);
-
-    /// PID bieżącego procesu zwiedzającego
     pid_t moj_pid = getpid();
 
-    /// Pobranie segmentu pamięci współdzielonej
-    shmid = shmget(SHM_KEY, sizeof(SharedMemory), 0);
-    if (shmid == -1) {
-        perror("shmget");
-        exit(1);
+    loguj_wiadomoscf("START: wiek=%d powtorna=%d poprz=%d opiekun=%d czy_opiekun=%d",
+        wiek, powtorna, poprz_trasa, pid_opiekuna, czy_opiekun);
+
+    if (pid_opiekuna > 0 && !czy_proces_zyje(pid_opiekuna)) {
+        loguj_wiadomoscf("WARN: Opiekun PID=%d nie istnieje podczas startu", pid_opiekuna);
     }
 
-    /// Podłączenie do pamięci współdzielonej
-    shm = (SharedMemory*)shmat(shmid, NULL, 0);
-    if (shm == (void*)-1) {
-        perror("shmat");
-        exit(1);
+    if (czy_opiekun) {
+        int msgid_ack = podlacz_msg_helper(KLUCZ_MSG_OPIEKUN_ACK);
+        if (msgid_ack != -1) {
+            WiadomoscOpiekunAck ack;
+            ack.mtype = moj_pid;
+            ack.pid_opiekuna = moj_pid;
+
+            if (msgsnd(msgid_ack, &ack, sizeof(WiadomoscOpiekunAck) - sizeof(long), IPC_NOWAIT) != -1) {
+                loguj_wiadomosc("Wyslano ACK opiekuna do generatora");
+            }
+        }
     }
 
-    /// Sprawdzenie, czy jaskinia jest otwarta
-    if (!shm->jaskinia_otwarta) {
-        log_formatted("ZWIEDZAJACY", "PID %d: Jaskinia zamknięta, rezygnuję", moj_pid);
-        shmdt(shm);
-        exit(0);
-    }
+    loguj_wiadomosc("STATE: Ide do kasjera");
 
-    /// Pobranie zestawu semaforów
-    semid = semget(SEM_KEY, SEM_COUNT, 0);
-    if (semid == -1) {
-        perror("semget");
-        exit(1);
-    }
-
-    /// Pobranie kolejki komunikatów kasjera
-    msgid_kasjer = msgget(MSG_KEY_KASJER, 0);
+    int msgid_kasjer = podlacz_msg_helper(KLUCZ_MSG_KASJER);
     if (msgid_kasjer == -1) {
-        perror("msgget kasjer");
-        exit(1);
+        loguj_wiadomoscf("ERROR: Nie mozna podlaczyc KLUCZ_MSG_KASJER: %s", strerror(errno));
+        return 0;
     }
 
-    /// Log informacji o zwiedzającym
-    log_formatted(
-        "ZWIEDZAJACY",
-        "PID %d: Wiek %d, %s",
-        moj_pid,
-        wiek,
-        powtorna_wizyta ? "powtórna wizyta" : "pierwsza wizyta"
-    );
+    WiadomoscKasjer zadanie;
+    zadanie.mtype = powtorna ? TYP_MSG_POWTORNA : TYP_MSG_ZADANIE;
+    zadanie.pid_zwiedzajacego = moj_pid;
+    zadanie.wiek = wiek;
+    zadanie.powtorna_wizyta = powtorna;
+    zadanie.poprzednia_trasa = poprz_trasa;
+    zadanie.pid_opiekuna = pid_opiekuna;
 
-    /// Przygotowanie komunikatu żądania do kasjera
-    msg_req.mtype = MSG_TYPE_REQUEST;
-    msg_req.pid_zwiedzajacego = moj_pid;
-    msg_req.wiek = wiek;
-    msg_req.powtorna_wizyta = powtorna_wizyta;
-    msg_req.poprzednia_trasa = poprzednia_trasa;
-
-    /// Dzieci poniżej 8 lat traktowane są jako posiadające opiekuna
-    /// W tej wersji opiekun jest symulowany jako proces nadrzędny
-    if (wiek < 8) {
-        msg_req.ma_opiekuna = 1;
-        msg_req.pid_opiekuna = getppid();
-    }
-    else {
-        msg_req.ma_opiekuna = 0;
-        msg_req.pid_opiekuna = 0;
+    if (msgsnd(msgid_kasjer, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long), 0) == -1) {
+        loguj_wiadomoscf("ERROR: msgsnd kasjer: %s", strerror(errno));
+        return 0;
     }
 
-    /// Wysłanie żądania do kasjera
-    if (msgsnd(
-        msgid_kasjer,
-        &msg_req,
-        sizeof(MessageKasjer) - sizeof(long),
-        0
-    ) == -1) {
-        perror("msgsnd żądanie");
-        shmdt(shm);
-        exit(1);
+    loguj_wiadomosc("STATE: Czekam na bilet");
+
+    WiadomoscOdpowiedz odpowiedz;
+    int otrzymano = 0;
+
+    alarm_otrzymany = 0;
+    alarm(TIMEOUT_ODPOWIEDZ_BILET);
+
+    ssize_t wynik = msgrcv(msgid_kasjer, &odpowiedz, sizeof(WiadomoscOdpowiedz) - sizeof(long),
+        moj_pid, 0);
+
+    alarm(0);
+
+    if (wynik != -1) {
+        otrzymano = 1;
     }
-
-    log_formatted("ZWIEDZAJACY", "PID %d: Wysłano żądanie do kasjera", moj_pid);
-
-    /// Oczekiwanie na odpowiedź kasjera
-    if (msgrcv(
-        msgid_kasjer,
-        &msg_resp,
-        sizeof(MessageOdpowiedz) - sizeof(long),
-        moj_pid,
-        0
-    ) == -1) {
-        perror("msgrcv odpowiedź");
-        shmdt(shm);
-        exit(1);
-    }
-
-    /// Obsługa decyzji o odrzuceniu
-    if (msg_resp.decyzja == DECYZJA_ODRZUCONY) {
-        log_formatted("ZWIEDZAJACY", "PID %d: Odrzucony przez kasjera", moj_pid);
-        shmdt(shm);
-        exit(0);
-    }
-
-    /// Pobranie przydzielonej trasy
-    int przydzielona_trasa = msg_resp.przydzielona_trasa;
-
-    log_formatted(
-        "ZWIEDZAJACY",
-        "PID %d: Zaakceptowany, trasa %d",
-        moj_pid,
-        przydzielona_trasa
-    );
-
-    /// Wybór kolejki komunikatów odpowiedniego przewodnika
-    if (przydzielona_trasa == 1) {
-        msgid_przewodnik = msgget(MSG_KEY_PRZEWODNIK1, 0);
+    else if (errno == EINTR) {
+        if (alarm_otrzymany) {
+            loguj_wiadomoscf("TIMEOUT: Brak odpowiedzi od kasjera (%ds)", TIMEOUT_ODPOWIEDZ_BILET);
+            return 0;
+        }
+        loguj_wiadomosc("WARN: msgrcv przerwany sygnalem (nie alarm), sprobuj ponownie");
+        return 0;
     }
     else {
-        msgid_przewodnik = msgget(MSG_KEY_PRZEWODNIK2, 0);
+        loguj_wiadomoscf("ERROR: msgrcv odpowiedz: %s", strerror(errno));
+        return 0;
     }
 
+    if (!otrzymano) {
+        loguj_wiadomosc("ERROR: Nie udalo sie otrzymac biletu");
+        return 0;
+    }
+
+    if (odpowiedz.decyzja == DECYZJA_ODRZUCONY) {
+        loguj_wiadomosc("REJECT: Odrzucony przez kasjera");
+        return 0;
+    }
+
+    int trasa = odpowiedz.przydzielona_trasa;
+    if (trasa < 1 || trasa > 2) {
+        loguj_wiadomoscf("ERROR: Nieprawidlowa przydzielona trasa: %d", trasa);
+        return 0;
+    }
+
+    loguj_wiadomoscf("TICKET: Przydzielono trase %d", trasa);
+
+    loguj_wiadomosc("STATE: Dolaczam do kolejki przewodnika");
+
+    int msgid_przewodnik = podlacz_msg_helper(trasa == 1 ? KLUCZ_MSG_PRZEWODNIK1 : KLUCZ_MSG_PRZEWODNIK2);
     if (msgid_przewodnik == -1) {
-        perror("msgget przewodnik");
-        shmdt(shm);
-        exit(1);
+        loguj_wiadomoscf("ERROR: Nie mozna podlaczyc kolejki przewodnika: %s", strerror(errno));
+        return 0;
     }
 
-    /// Przygotowanie komunikatu do przewodnika
-    msg_przewodnik.mtype = MSG_TYPE_ZWIEDZAJACY;
-    msg_przewodnik.pid_zwiedzajacego = moj_pid;
-    msg_przewodnik.wiek = wiek;
+    WiadomoscPrzewodnik wiadomosc_przew;
+    wiadomosc_przew.mtype = TYP_MSG_ZWIEDZAJACY;
+    wiadomosc_przew.pid_zwiedzajacego = moj_pid;
+    wiadomosc_przew.wiek = wiek;
 
-    /// Zgłoszenie zwiedzającego do kolejki przewodnika
-    if (msgsnd(
-        msgid_przewodnik,
-        &msg_przewodnik,
-        sizeof(MessagePrzewodnik) - sizeof(long),
-        0
-    ) == -1) {
-        perror("msgsnd przewodnik");
-        shmdt(shm);
-        exit(1);
+    if (msgsnd(msgid_przewodnik, &wiadomosc_przew, sizeof(WiadomoscPrzewodnik) - sizeof(long), 0) == -1) {
+        loguj_wiadomoscf("ERROR: msgsnd przewodnik: %s", strerror(errno));
+        return 0;
     }
 
-    log_formatted(
-        "ZWIEDZAJACY",
-        "PID %d: Dołączam do kolejki trasy %d",
-        moj_pid,
-        przydzielona_trasa
-    );
+    loguj_wiadomosc("STATE: W kolejce czekam na grupe");
 
-    /// Oczekiwanie na zakończenie wycieczki, odrzucenie lub zamknięcie jaskini
-    while (!moze_wyjsc && !odrzucony && shm->jaskinia_otwarta) {
+    sigset_t maska, stara_maska;
+    sigemptyset(&maska);
+    sigaddset(&maska, SIGRTMIN + 0);
+    sigaddset(&maska, SIGRTMIN + 1);
+    sigaddset(&maska, SIGRTMIN + 2);
+    sigaddset(&maska, SIGUSR1);
+    sigaddset(&maska, SIGUSR2);
+
+    sigprocmask(SIG_BLOCK, &maska, &stara_maska);
+
+    while (!odwolano && !w_grupie && !moze_wyjsc) {
+        sigsuspend(&stara_maska);
+    }
+
+    if (odwolano) {
+        sigprocmask(SIG_SETMASK, &stara_maska, NULL);
+        loguj_wiadomosc("CANCEL: Przed rozpoczeciem wycieczki");
+        return 0;
+    }
+
+    if (w_grupie) {
+        loguj_wiadomosc("STATE: Zebrano do grupy");
+    }
+
+    while (!odwolano && !na_kladce && !moze_wyjsc) {
+        sigsuspend(&stara_maska);
+    }
+
+    if (odwolano) {
+        sigprocmask(SIG_SETMASK, &stara_maska, NULL);
+        loguj_wiadomosc("CANCEL: Po zebraniu grupy");
+        return 0;
+    }
+
+    if (na_kladce) {
+        loguj_wiadomosc("STATE: Przechodze kladke (wejscie)");
+    }
+
+    while (!odwolano && !zwiedzam && !moze_wyjsc) {
+        sigsuspend(&stara_maska);
+    }
+
+    if (odwolano) {
+        sigprocmask(SIG_SETMASK, &stara_maska, NULL);
+        loguj_wiadomosc("CANCEL: Podczas przechodzenia kladki");
+        return 0;
+    }
+
+    if (zwiedzam) {
+        loguj_wiadomoscf("STATE: Zwiedzam trase %d", trasa);
+    }
+
+    while (!odwolano && !moze_wyjsc) {
+        sigsuspend(&stara_maska);
+    }
+
+    if (odwolano) {
+        sigprocmask(SIG_SETMASK, &stara_maska, NULL);
+        loguj_wiadomosc("CANCEL: Awaryjnie podczas zwiedzania");
+        return 0;
+    }
+
+    if (moze_wyjsc) {
+        loguj_wiadomosc("STATE: Przechodze kladke (wyjscie)");
         sleep(1);
+        loguj_wiadomosc("COMPLETE: Opuscilem jaskinie");
     }
 
-    /// Obsługa zakończenia wizyty
-    if (odrzucony) {
-        log_formatted(
-            "ZWIEDZAJACY",
-            "PID %d: Wycieczka odwołana (zamknięcie)",
-            moj_pid
-        );
-    }
-    else {
-        log_formatted(
-            "ZWIEDZAJACY",
-            "PID %d: Wycieczka zakończona, wychodzę",
-            moj_pid
-        );
-    }
-
-    /// Odłączenie pamięci współdzielonej
-    shmdt(shm);
-
+    sigprocmask(SIG_SETMASK, &stara_maska, NULL);
     return 0;
 }
