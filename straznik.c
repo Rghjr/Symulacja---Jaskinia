@@ -8,10 +8,12 @@ volatile sig_atomic_t zakonczenie_zadane = 0;
 volatile sig_atomic_t sigchld_otrzymany = 0;
 
 void obsluga_sygnalu(int sig) {
+    (void)sig;
     zakonczenie_zadane = 1;
 }
 
 void obsluga_sigchld(int sig) {
+    (void)sig;
     sigchld_otrzymany = 1;
     while (waitpid(-1, NULL, WNOHANG) > 0);
 }

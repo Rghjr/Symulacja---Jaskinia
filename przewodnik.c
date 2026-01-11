@@ -2,14 +2,16 @@
 #include "common_helpers.h"
 #include "przewodnik_helpers.h"
 
+int globalny_semid_log = -1;
+
 volatile sig_atomic_t kontynuuj = 1;
 volatile sig_atomic_t zamkniecie_otrzymane = 0;
 volatile sig_atomic_t na_trasie = 0;
 volatile sig_atomic_t alarm_otrzymany = 0;
 
-void obsluga_sigterm(int sig) { kontynuuj = 0; }
-void obsluga_zamkniecie(int sig) { zamkniecie_otrzymane = 1; }
-void obsluga_alarm(int sig) { alarm_otrzymany = 1; }
+void obsluga_sigterm(int sig) { (void)sig; kontynuuj = 0; }
+void obsluga_zamkniecie(int sig) { (void)sig; zamkniecie_otrzymane = 1; }
+void obsluga_alarm(int sig) { (void)sig; alarm_otrzymany = 1; }
 
 int NUMER;
 
@@ -120,6 +122,22 @@ int main(int argc, char* argv[]) {
 
     loguj_wiadomoscf("Gotowy: max=%d czas=%ds K=%d", max_osoby, czas, K);
 
+    // CZEKAJ NA OTWARCIE JASKINI!
+    loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
+
+    pthread_mutex_lock(&shm_j->mutex);
+    while (!shm_j->otwarta && kontynuuj) {
+        pthread_cond_wait(&shm_j->cond_otwarta, &shm_j->mutex);
+    }
+    pthread_mutex_unlock(&shm_j->mutex);
+
+    if (!kontynuuj) {
+        loguj_wiadomosc("SHUTDOWN przed otwarciem jaskini");
+        goto cleanup;
+    }
+
+    loguj_wiadomosc("Jaskinia otwarta - rozpoczynam prace");
+
     WiadomoscPrzewodnik wiadomosc;
 
     while (kontynuuj) {
@@ -130,7 +148,7 @@ int main(int argc, char* argv[]) {
         if (!otwarta) {
             loguj_wiadomosc("Jaskinia zamknieta, czekam na SIGTERM");
             while (kontynuuj) sleep(1);
-            break;
+                break;
         }
 
         pid_t grupa[max_osoby];

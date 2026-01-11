@@ -2,7 +2,9 @@
 #include "common_helpers.h"
 
 volatile sig_atomic_t kontynuuj = 1;
-void obsluga_sigterm(int sig) { kontynuuj = 0; }
+void obsluga_sigterm(int sig) { (void)sig; kontynuuj = 0; }
+
+int globalny_semid_log = -1;
 
 void loguj_wiadomosc(const char* wiadomosc) {
     int sem_zdobyty = 0;
@@ -154,6 +156,24 @@ int main() {
 
     loguj_wiadomosc("Gotowy: kolejka priorytetowa (powtorne > zwykle)");
     loguj_wiadomosc("Sledzenie tras opiekunow wlaczone");
+    loguj_wiadomosc("REGULAMIN: Dzieci <8 i ich opiekunowie TYLKO trasa 2");
+
+    // CZEKAJ NA OTWARCIE JASKINI!
+    loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
+
+    pthread_mutex_lock(&shm_j->mutex);
+    while (!shm_j->otwarta && kontynuuj) {
+        pthread_cond_wait(&shm_j->cond_otwarta, &shm_j->mutex);
+    }
+    pthread_mutex_unlock(&shm_j->mutex);
+
+    if (!kontynuuj) {
+        loguj_wiadomosc("SHUTDOWN przed otwarciem jaskini");
+        BEZPIECZNY_SHMDT(shm_j);
+        return 0;
+    }
+
+    loguj_wiadomosc("Jaskinia otwarta - rozpoczynam prace");
 
     WiadomoscKasjer zadanie;
     WiadomoscOdpowiedz odpowiedz;
@@ -181,10 +201,6 @@ int main() {
             otrzymano = 1;
         }
         else if (errno == ENOMSG) {
-            struct timespec timeout;
-            timeout.tv_sec = 1;
-            timeout.tv_nsec = 0;
-
             ssize_t wynik = msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
                 0, 0);
 
@@ -214,18 +230,26 @@ int main() {
         int decyzja = DECYZJA_ODRZUCONY;
         int trasa = 0;
 
+        // DZIECI <8
         if (zadanie.wiek < 8) {
             if (zadanie.pid_opiekuna > 0 && sprawdz_opiekuna(zadanie.pid_opiekuna)) {
                 int trasa_opiekuna = sprawdz_trase_opiekuna(zadanie.pid_opiekuna);
 
                 if (trasa_opiekuna > 0) {
-                    trasa = trasa_opiekuna;
-                    decyzja = (trasa == 1) ? DECYZJA_TRASA1 : DECYZJA_TRASA2;
+                    if (trasa_opiekuna == 2) {
+                        trasa = 2;
+                        decyzja = DECYZJA_TRASA2;
 
-                    if (zadanie.wiek < 3) {
-                        statystyki.dzieci_darmo++;
+                        if (zadanie.wiek < 3) {
+                            statystyki.dzieci_darmo++;
+                        }
+                        statystyki.dzieci_z_opiekunami++;
                     }
-                    statystyki.dzieci_z_opiekunami++;
+                    else {
+                        loguj_wiadomoscf("REJECT: PID=%d dziecko<%d opiekun=%d ma trasê %d (wymagana 2)",
+                            zadanie.pid_zwiedzajacego, zadanie.wiek, zadanie.pid_opiekuna, trasa_opiekuna);
+                        statystyki.dzieci_bez_opiekunow++;
+                    }
                 }
                 else {
                     loguj_wiadomoscf("REJECT: PID=%d dziecko<%d opiekun=%d nie przetworzony jeszcze",
@@ -240,11 +264,21 @@ int main() {
                 statystyki.dzieci_bez_opiekunow++;
             }
         }
+        // OPIEKUN DZIECKA <8 - TYLKO TRASA 2
+        else if (zadanie.czy_opiekun) {
+            decyzja = DECYZJA_TRASA2;
+            trasa = 2;
+            zapisz_trase_opiekuna(zadanie.pid_zwiedzajacego, trasa);
+            loguj_wiadomoscf("ACCEPT: PID=%d opiekun (dziecko <8) -> trasa 2",
+                zadanie.pid_zwiedzajacego);
+        }
+        // SENIORZY >75 - TYLKO TRASA 2
         else if (zadanie.wiek > 75) {
             decyzja = DECYZJA_TRASA2;
             trasa = 2;
             statystyki.seniorow++;
         }
+        // POWTÓRNE WIZYTY - INNA TRASA
         else if (zadanie.powtorna_wizyta) {
             if (zadanie.poprzednia_trasa >= 1 && zadanie.poprzednia_trasa <= 2) {
                 trasa = (zadanie.poprzednia_trasa == 1) ? 2 : 1;
@@ -254,6 +288,7 @@ int main() {
                 loguj_wiadomoscf("REJECT: Nieprawidlowa poprzednia trasa=%d", zadanie.poprzednia_trasa);
             }
         }
+        // ZWYKLI - LOSOWA TRASA
         else {
             trasa = (rand() % 2) + 1;
             decyzja = (trasa == 1) ? DECYZJA_TRASA1 : DECYZJA_TRASA2;

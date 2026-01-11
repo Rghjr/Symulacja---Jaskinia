@@ -1,8 +1,10 @@
 #include "common.h"
 #include "common_helpers.h"
 
+int globalny_semid_log = -1;
+
 volatile sig_atomic_t kontynuuj = 1;
-void obsluga_sigterm(int sig) { kontynuuj = 0; }
+void obsluga_sigterm(int sig) { (void)sig; kontynuuj = 0; }
 
 void loguj_wiadomosc(const char* wiadomosc) {
     int sem_zdobyty = 0;

@@ -46,7 +46,7 @@
 #define T1 10
 #define T2 15
 #define Tp 0
-#define Tk 300
+#define Tk 20
 
 #define OPOZNIENIE_GENERATORA_MIN 0
 #define OPOZNIENIE_GENERATORA_MAX 5
@@ -133,6 +133,7 @@ typedef struct {
     int powtorna_wizyta;
     int poprzednia_trasa;
     pid_t pid_opiekuna;
+    int czy_opiekun;
 } WiadomoscKasjer;
 
 typedef struct {

@@ -1,6 +1,8 @@
 #include "common.h"
 #include "common_helpers.h"
 
+int globalny_semid_log = -1;
+
 volatile sig_atomic_t odwolano = 0;
 volatile sig_atomic_t w_grupie = 0;
 volatile sig_atomic_t na_kladce = 0;
@@ -8,12 +10,12 @@ volatile sig_atomic_t zwiedzam = 0;
 volatile sig_atomic_t moze_wyjsc = 0;
 volatile sig_atomic_t alarm_otrzymany = 0;
 
-void obsluga_sigusr1(int sig) { odwolano = 1; }
-void obsluga_sigrtmin0(int sig) { w_grupie = 1; }
-void obsluga_sigrtmin1(int sig) { na_kladce = 1; }
-void obsluga_sigrtmin2(int sig) { zwiedzam = 1; }
-void obsluga_sigusr2(int sig) { moze_wyjsc = 1; }
-void obsluga_alarm(int sig) { alarm_otrzymany = 1; }
+void obsluga_sigusr1(int sig) { (void)sig; odwolano = 1; }
+void obsluga_sigrtmin0(int sig) { (void)sig; w_grupie = 1; }
+void obsluga_sigrtmin1(int sig) { (void)sig; na_kladce = 1; }
+void obsluga_sigrtmin2(int sig) { (void)sig; zwiedzam = 1; }
+void obsluga_sigusr2(int sig) { (void)sig; moze_wyjsc = 1; }
+void obsluga_alarm(int sig) { (void)sig; alarm_otrzymany = 1; }
 
 void loguj_wiadomosc(const char* wiadomosc) {
     int sem_zdobyty = 0;
@@ -120,6 +122,7 @@ int main(int argc, char* argv[]) {
     zadanie.powtorna_wizyta = powtorna;
     zadanie.poprzednia_trasa = poprz_trasa;
     zadanie.pid_opiekuna = pid_opiekuna;
+    zadanie.czy_opiekun = czy_opiekun;
 
     if (msgsnd(msgid_kasjer, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long), 0) == -1) {
         loguj_wiadomoscf("ERROR: msgsnd kasjer: %s", strerror(errno));
