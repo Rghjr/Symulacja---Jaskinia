@@ -60,7 +60,6 @@
 
 #define CZAS_ZBIERANIA_GRUPY 5
 #define CZAS_PRZECHODZENIA_KLADKA 200
-#define OPOZNIENIE_SPAWN_OPIEKUNA 50
 
 #define TIMEOUT_ODPOWIEDZ_BILET 30
 #define INTERWAL_POLLING 100
@@ -68,7 +67,6 @@
 #define WYPRZEDZENIE_SYGNAL_ZAMKNIECIA 10
 #define TIMEOUT_CZEKAJ_CLEANUP 10
 #define MAX_PROB_RETRY 10
-#define PROBY_SPRAWDZ_OPIEKUNA 7
 #define INTERWAL_LOG 10
 
 #define KLUCZ_SHM_JASKINIA 0x1001
@@ -87,13 +85,11 @@
 #define KLUCZ_MSG_KASJER 0x3001
 #define KLUCZ_MSG_PRZEWODNIK1 0x3002
 #define KLUCZ_MSG_PRZEWODNIK2 0x3003
-#define KLUCZ_MSG_OPIEKUN_ACK 0x3004
 
 #define TYP_MSG_ZADANIE 1
 #define TYP_MSG_ODPOWIEDZ 2
 #define TYP_MSG_ZWIEDZAJACY 3
 #define TYP_MSG_POWTORNA 4
-#define TYP_MSG_OPIEKUN_GOTOWY 5
 
 #define DECYZJA_ODRZUCONY 0
 #define DECYZJA_TRASA1 1
@@ -133,7 +129,6 @@ typedef struct {
     int powtorna_wizyta;
     int poprzednia_trasa;
     pid_t pid_opiekuna;
-    int czy_opiekun;
 } WiadomoscKasjer;
 
 typedef struct {
@@ -147,11 +142,6 @@ typedef struct {
     pid_t pid_zwiedzajacego;
     int wiek;
 } WiadomoscPrzewodnik;
-
-typedef struct {
-    long mtype;
-    pid_t pid_opiekuna;
-} WiadomoscOpiekunAck;
 
 union semun {
     int val;

@@ -60,24 +60,6 @@ void zarejestruj_zwiedzajacego(ShmZwiedzajacy* shm_zwiedzajacy, pid_t pid) {
     }
 }
 
-int czekaj_na_opiekuna_gotowy(int msgid_ack, pid_t pid_opiekuna) {
-    WiadomoscOpiekunAck ack;
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 2;
-
-    for (int i = 0; i < 20; i++) {
-        if (msgrcv(msgid_ack, &ack, sizeof(WiadomoscOpiekunAck) - sizeof(long),
-            pid_opiekuna, IPC_NOWAIT) != -1) {
-            return 1;
-        }
-        usleep(OPOZNIENIE_SPAWN_OPIEKUNA * 1000);
-    }
-
-    loguj_wiadomoscf("WARN: Opiekun PID=%d nie wyslal ACK w czasie", pid_opiekuna);
-    return 0;
-}
-
 int main() {
     signal(SIGTERM, obsluga_sigterm);
 
@@ -101,11 +83,6 @@ int main() {
         BEZPIECZNY_SHMDT(shm_j);
         BEZPIECZNY_SHMDT(shm_zwiedzajacy);
         return 1;
-    }
-
-    int msgid_ack = podlacz_msg_helper(KLUCZ_MSG_OPIEKUN_ACK);
-    if (msgid_ack == -1) {
-        loguj_wiadomosc("WARN: Nie mozna podlaczyc MSG_OPIEKUN_ACK, sync moze zawiec");
     }
 
     loguj_wiadomoscf("Generator wystartowany PID=%d", getpid());
@@ -163,6 +140,9 @@ int main() {
                     continue;
                 }
 
+                int wiek_opiekuna = MIN_WIEK_OPIEKUNA +
+                    (rand() % (MAX_WIEK_OPIEKUNA - MIN_WIEK_OPIEKUNA + 1));
+
                 pid_t opiekun = fork();
                 if (opiekun == -1) {
                     perror("fork opiekun");
@@ -172,16 +152,13 @@ int main() {
                 }
 
                 if (opiekun == 0) {
-                    int wiek_opiekuna = MIN_WIEK_OPIEKUNA +
-                        (rand() % (MAX_WIEK_OPIEKUNA - MIN_WIEK_OPIEKUNA + 1));
-                    char w[16], p[16], t[16], o[16], g[16];
+                    char w[16], p[16], t[16], o[16];
                     snprintf(w, sizeof(w), "%d", wiek_opiekuna);
                     snprintf(p, sizeof(p), "0");
                     snprintf(t, sizeof(t), "1");
                     snprintf(o, sizeof(o), "0");
-                    snprintf(g, sizeof(g), "1");
 
-                    execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, g, NULL);
+                    execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, NULL);
                     perror("execl opiekun");
                     exit(1);
                 }
@@ -189,15 +166,8 @@ int main() {
                 pid_opiekuna = opiekun;
                 zarejestruj_zwiedzajacego(shm_zwiedzajacy, pid_opiekuna);
 
-                if (msgid_ack != -1) {
-                    czekaj_na_opiekuna_gotowy(msgid_ack, pid_opiekuna);
-                }
-                else {
-                    usleep(OPOZNIENIE_SPAWN_OPIEKUNA * 1000);
-                }
-
-                loguj_wiadomoscf("Wygenerowano opiekuna PID=%d wiek=%d-%d",
-                    pid_opiekuna, MIN_WIEK_OPIEKUNA, MAX_WIEK_OPIEKUNA);
+                loguj_wiadomoscf("Wygenerowano opiekuna PID=%d wiek=%d dla dziecka wiek=%d",
+                    pid_opiekuna, wiek_opiekuna, wiek);
             }
         }
 
@@ -222,14 +192,13 @@ int main() {
         licznik_retry_fork = 0;
 
         if (pid == 0) {
-            char w[16], p[16], t[16], o[16], g[16];
+            char w[16], p[16], t[16], o[16];
             snprintf(w, sizeof(w), "%d", wiek);
             snprintf(p, sizeof(p), "%d", powtorna);
             snprintf(t, sizeof(t), "%d", poprz_trasa);
             snprintf(o, sizeof(o), "%d", pid_opiekuna);
-            snprintf(g, sizeof(g), "0");
 
-            execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, g, NULL);
+            execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, NULL);
             perror("execl zwiedzajacy");
             exit(1);
         }
