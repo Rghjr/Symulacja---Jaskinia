@@ -86,7 +86,6 @@ int main() {
     }
 
     loguj_wiadomoscf("Generator wystartowany PID=%d", getpid());
-
     loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
 
     pthread_mutex_lock(&shm_j->mutex);
@@ -120,13 +119,6 @@ int main() {
             break;
         }
 
-        if (shm_zwiedzajacy->licznik >= MAX_ZWIEDZAJACYCH) {
-            loguj_wiadomoscf("Limit zwiedzajacych osiagniety (%d/%d), czekam",
-                shm_zwiedzajacy->licznik, MAX_ZWIEDZAJACYCH);
-            sleep(5);
-            continue;
-        }
-
         int wiek = MIN_WIEK + (rand() % (MAX_WIEK - MIN_WIEK + 1));
         int powtorna = (rand() % 100) < SZANSA_POWTORNA ? 1 : 0;
         int poprz_trasa = (rand() % 2) + 1;
@@ -140,8 +132,7 @@ int main() {
                     continue;
                 }
 
-                int wiek_opiekuna = MIN_WIEK_OPIEKUNA +
-                    (rand() % (MAX_WIEK_OPIEKUNA - MIN_WIEK_OPIEKUNA + 1));
+                int wiek_opiekuna = MIN_WIEK_OPIEKUNA + (rand() % (MAX_WIEK_OPIEKUNA - MIN_WIEK_OPIEKUNA + 1));
 
                 pid_t opiekun = fork();
                 if (opiekun == -1) {
@@ -155,7 +146,7 @@ int main() {
                     char w[16], p[16], t[16], o[16];
                     snprintf(w, sizeof(w), "%d", wiek_opiekuna);
                     snprintf(p, sizeof(p), "0");
-                    snprintf(t, sizeof(t), "1");
+                    snprintf(t, sizeof(t), "2");
                     snprintf(o, sizeof(o), "0");
 
                     execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, NULL);
@@ -165,8 +156,9 @@ int main() {
 
                 pid_opiekuna = opiekun;
                 zarejestruj_zwiedzajacego(shm_zwiedzajacy, pid_opiekuna);
+                poprz_trasa = 2;
 
-                loguj_wiadomoscf("Wygenerowano opiekuna PID=%d wiek=%d dla dziecka wiek=%d",
+                loguj_wiadomoscf("Wygenerowano opiekuna PID=%d wiek=%d dla dziecka wiek=%d (TRASA 2)",
                     pid_opiekuna, wiek_opiekuna, wiek);
             }
         }
@@ -206,13 +198,11 @@ int main() {
         zarejestruj_zwiedzajacego(shm_zwiedzajacy, pid);
         licznik++;
 
-        int opoznienie = OPOZNIENIE_GENERATORA_MIN +
-            (rand() % (OPOZNIENIE_GENERATORA_MAX - OPOZNIENIE_GENERATORA_MIN + 1));
+        int opoznienie = OPOZNIENIE_GENERATORA_MIN + (rand() % (OPOZNIENIE_GENERATORA_MAX - OPOZNIENIE_GENERATORA_MIN + 1));
         sleep(opoznienie);
     }
 
-    loguj_wiadomoscf("SHUTDOWN: wygenerowano=%d zarejestrowano=%d",
-        licznik, shm_zwiedzajacy->licznik);
+    loguj_wiadomoscf("SHUTDOWN: wygenerowano=%d zarejestrowano=%d", licznik, shm_zwiedzajacy->licznik);
 
     BEZPIECZNY_SHMDT(shm_j);
     BEZPIECZNY_SHMDT(shm_zwiedzajacy);

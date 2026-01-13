@@ -48,41 +48,6 @@ void loguj_wiadomoscf(const char* format, ...) {
     loguj_wiadomosc(wiadomosc);
 }
 
-#define MAX_OPIEKUNOWIE 500
-
-typedef struct {
-    pid_t pid;
-    int trasa;
-} OpiekunTrasa;
-
-typedef struct {
-    OpiekunTrasa lista[MAX_OPIEKUNOWIE];
-    int licznik;
-} BazaOpiekunow;
-
-BazaOpiekunow baza_opiekunow = { .licznik = 0 };
-
-void zapisz_trase_opiekuna(pid_t pid_opiekuna, int trasa) {
-    if (baza_opiekunow.licznik >= MAX_OPIEKUNOWIE) {
-        loguj_wiadomoscf("WARN: Baza opiekunow pelna (%d), nie zapisuje PID=%d",
-            MAX_OPIEKUNOWIE, pid_opiekuna);
-        return;
-    }
-
-    baza_opiekunow.lista[baza_opiekunow.licznik].pid = pid_opiekuna;
-    baza_opiekunow.lista[baza_opiekunow.licznik].trasa = trasa;
-    baza_opiekunow.licznik++;
-}
-
-int sprawdz_trase_opiekuna(pid_t pid_opiekuna) {
-    for (int i = 0; i < baza_opiekunow.licznik; i++) {
-        if (baza_opiekunow.lista[i].pid == pid_opiekuna) {
-            return baza_opiekunow.lista[i].trasa;
-        }
-    }
-    return 0;
-}
-
 typedef struct {
     int trasa1;
     int trasa2;
@@ -119,18 +84,6 @@ void wyswietl_raport() {
     loguj_wiadomosc("================================================================");
 }
 
-int sprawdz_opiekuna(pid_t pid_opiekuna) {
-    for (int retry = 0; retry < PROBY_SPRAWDZ_OPIEKUNA; retry++) {
-        if (czy_proces_zyje(pid_opiekuna)) {
-            return 1;
-        }
-        if (retry < PROBY_SPRAWDZ_OPIEKUNA - 1) {
-            usleep(100000);
-        }
-    }
-    return 0;
-}
-
 int main() {
     signal(SIGTERM, obsluga_sigterm);
     srand(time(NULL) ^ getpid());
@@ -155,10 +108,8 @@ int main() {
     }
 
     loguj_wiadomosc("Gotowy: kolejka priorytetowa (powtorne > zwykle)");
-    loguj_wiadomosc("Sledzenie tras opiekunow wlaczone");
-    loguj_wiadomosc("REGULAMIN: Dzieci <8 i ich opiekunowie TYLKO trasa 2");
+    loguj_wiadomosc("REGULAMIN: Dzieci <8 z opiekunem TYLKO trasa 2");
 
-    // CZEKAJ NA OTWARCIE JASKINI!
     loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
 
     pthread_mutex_lock(&shm_j->mutex);
@@ -230,32 +181,15 @@ int main() {
         int decyzja = DECYZJA_ODRZUCONY;
         int trasa = 0;
 
-        // DZIECI <8
         if (zadanie.wiek < 8) {
-            if (zadanie.pid_opiekuna > 0 && sprawdz_opiekuna(zadanie.pid_opiekuna)) {
-                int trasa_opiekuna = sprawdz_trase_opiekuna(zadanie.pid_opiekuna);
+            if (zadanie.pid_opiekuna > 0 && czy_proces_zyje(zadanie.pid_opiekuna)) {
+                trasa = 2;
+                decyzja = DECYZJA_TRASA2;
 
-                if (trasa_opiekuna > 0) {
-                    if (trasa_opiekuna == 2) {
-                        trasa = 2;
-                        decyzja = DECYZJA_TRASA2;
-
-                        if (zadanie.wiek < 3) {
-                            statystyki.dzieci_darmo++;
-                        }
-                        statystyki.dzieci_z_opiekunami++;
-                    }
-                    else {
-                        loguj_wiadomoscf("REJECT: PID=%d dziecko<%d opiekun=%d ma trasê %d (wymagana 2)",
-                            zadanie.pid_zwiedzajacego, zadanie.wiek, zadanie.pid_opiekuna, trasa_opiekuna);
-                        statystyki.dzieci_bez_opiekunow++;
-                    }
+                if (zadanie.wiek < 3) {
+                    statystyki.dzieci_darmo++;
                 }
-                else {
-                    loguj_wiadomoscf("REJECT: PID=%d dziecko<%d opiekun=%d nie przetworzony jeszcze",
-                        zadanie.pid_zwiedzajacego, zadanie.wiek, zadanie.pid_opiekuna);
-                    statystyki.dzieci_bez_opiekunow++;
-                }
+                statystyki.dzieci_z_opiekunami++;
             }
             else {
                 loguj_wiadomoscf("REJECT: PID=%d dziecko<%d %s",
@@ -264,21 +198,11 @@ int main() {
                 statystyki.dzieci_bez_opiekunow++;
             }
         }
-        // OPIEKUN DZIECKA <8 - TYLKO TRASA 2
-        else if (zadanie.czy_opiekun) {
-            decyzja = DECYZJA_TRASA2;
-            trasa = 2;
-            zapisz_trase_opiekuna(zadanie.pid_zwiedzajacego, trasa);
-            loguj_wiadomoscf("ACCEPT: PID=%d opiekun (dziecko <8) -> trasa 2",
-                zadanie.pid_zwiedzajacego);
-        }
-        // SENIORZY >75 - TYLKO TRASA 2
         else if (zadanie.wiek > 75) {
             decyzja = DECYZJA_TRASA2;
             trasa = 2;
             statystyki.seniorow++;
         }
-        // POWTÓRNE WIZYTY - INNA TRASA
         else if (zadanie.powtorna_wizyta) {
             if (zadanie.poprzednia_trasa >= 1 && zadanie.poprzednia_trasa <= 2) {
                 trasa = (zadanie.poprzednia_trasa == 1) ? 2 : 1;
@@ -288,14 +212,9 @@ int main() {
                 loguj_wiadomoscf("REJECT: Nieprawidlowa poprzednia trasa=%d", zadanie.poprzednia_trasa);
             }
         }
-        // ZWYKLI - LOSOWA TRASA
         else {
             trasa = (rand() % 2) + 1;
             decyzja = (trasa == 1) ? DECYZJA_TRASA1 : DECYZJA_TRASA2;
-
-            if (zadanie.wiek >= MIN_WIEK_OPIEKUNA && zadanie.wiek <= MAX_WIEK_OPIEKUNA) {
-                zapisz_trase_opiekuna(zadanie.pid_zwiedzajacego, trasa);
-            }
         }
 
         odpowiedz.mtype = zadanie.pid_zwiedzajacego;

@@ -60,18 +60,17 @@ void loguj_wiadomoscf(const char* format, ...) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 6) {
-        fprintf(stderr, "Uzycie: %s <wiek> <powtorna> <poprz_trasa> <pid_opiekuna> <czy_opiekun>\n", argv[0]);
+    if (argc != 5) {
+        fprintf(stderr, "Uzycie: %s <wiek> <powtorna> <poprz_trasa> <pid_opiekuna>\n", argv[0]);
         return 1;
     }
 
-    int wiek, powtorna, poprz_trasa, pid_opiekuna, czy_opiekun;
+    int wiek, powtorna, poprz_trasa, pid_opiekuna;
 
     if (bezpieczny_strtol(argv[1], &wiek, MIN_WIEK, MAX_WIEK) != 0 ||
         bezpieczny_strtol(argv[2], &powtorna, 0, 1) != 0 ||
         bezpieczny_strtol(argv[3], &poprz_trasa, 1, 2) != 0 ||
-        bezpieczny_strtol(argv[4], &pid_opiekuna, 0, INT_MAX) != 0 ||
-        bezpieczny_strtol(argv[5], &czy_opiekun, 0, 1) != 0) {
+        bezpieczny_strtol(argv[4], &pid_opiekuna, 0, INT_MAX) != 0) {
         fprintf(stderr, "ERROR: Nieprawidlowe argumenty\n");
         return 1;
     }
@@ -87,24 +86,11 @@ int main(int argc, char* argv[]) {
 
     pid_t moj_pid = getpid();
 
-    loguj_wiadomoscf("START: wiek=%d powtorna=%d poprz=%d opiekun=%d czy_opiekun=%d",
-        wiek, powtorna, poprz_trasa, pid_opiekuna, czy_opiekun);
+    loguj_wiadomoscf("START: wiek=%d powtorna=%d poprz=%d opiekun=%d",
+        wiek, powtorna, poprz_trasa, pid_opiekuna);
 
     if (pid_opiekuna > 0 && !czy_proces_zyje(pid_opiekuna)) {
         loguj_wiadomoscf("WARN: Opiekun PID=%d nie istnieje podczas startu", pid_opiekuna);
-    }
-
-    if (czy_opiekun) {
-        int msgid_ack = podlacz_msg_helper(KLUCZ_MSG_OPIEKUN_ACK);
-        if (msgid_ack != -1) {
-            WiadomoscOpiekunAck ack;
-            ack.mtype = moj_pid;
-            ack.pid_opiekuna = moj_pid;
-
-            if (msgsnd(msgid_ack, &ack, sizeof(WiadomoscOpiekunAck) - sizeof(long), IPC_NOWAIT) != -1) {
-                loguj_wiadomosc("Wyslano ACK opiekuna do generatora");
-            }
-        }
     }
 
     loguj_wiadomosc("STATE: Ide do kasjera");
@@ -122,7 +108,6 @@ int main(int argc, char* argv[]) {
     zadanie.powtorna_wizyta = powtorna;
     zadanie.poprzednia_trasa = poprz_trasa;
     zadanie.pid_opiekuna = pid_opiekuna;
-    zadanie.czy_opiekun = czy_opiekun;
 
     if (msgsnd(msgid_kasjer, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long), 0) == -1) {
         loguj_wiadomoscf("ERROR: msgsnd kasjer: %s", strerror(errno));

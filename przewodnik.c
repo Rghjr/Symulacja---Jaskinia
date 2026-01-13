@@ -122,7 +122,6 @@ int main(int argc, char* argv[]) {
 
     loguj_wiadomoscf("Gotowy: max=%d czas=%ds K=%d", max_osoby, czas, K);
 
-    // CZEKAJ NA OTWARCIE JASKINI!
     loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
 
     pthread_mutex_lock(&shm_j->mutex);
@@ -148,7 +147,7 @@ int main(int argc, char* argv[]) {
         if (!otwarta) {
             loguj_wiadomosc("Jaskinia zamknieta, czekam na SIGTERM");
             while (kontynuuj) sleep(1);
-                break;
+            break;
         }
 
         pid_t grupa[max_osoby];
