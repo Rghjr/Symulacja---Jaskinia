@@ -68,6 +68,7 @@
 #define TIMEOUT_CZEKAJ_CLEANUP 10
 #define MAX_PROB_RETRY 10
 #define INTERWAL_LOG 10
+#define PROBY_SPRAWDZ_OPIEKUNA 3
 
 #define KLUCZ_SHM_JASKINIA 0x1001
 #define KLUCZ_SHM_KLADKA1 0x1002
@@ -85,6 +86,7 @@
 #define KLUCZ_MSG_KASJER 0x3001
 #define KLUCZ_MSG_PRZEWODNIK1 0x3002
 #define KLUCZ_MSG_PRZEWODNIK2 0x3003
+#define KLUCZ_MSG_OPIEKUN_ACK 0x3004
 
 #define TYP_MSG_ZADANIE 1
 #define TYP_MSG_ODPOWIEDZ 2
@@ -129,6 +131,7 @@ typedef struct {
     int powtorna_wizyta;
     int poprzednia_trasa;
     pid_t pid_opiekuna;
+    int czy_opiekun;
 } WiadomoscKasjer;
 
 typedef struct {
@@ -142,6 +145,11 @@ typedef struct {
     pid_t pid_zwiedzajacego;
     int wiek;
 } WiadomoscPrzewodnik;
+
+typedef struct {
+    long mtype;
+    pid_t pid_opiekuna;
+} WiadomoscOpiekunAck;
 
 union semun {
     int val;

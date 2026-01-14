@@ -143,13 +143,14 @@ int main() {
                 }
 
                 if (opiekun == 0) {
-                    char w[16], p[16], t[16], o[16];
+                    char w[16], p[16], t[16], o[16], c[16];
                     snprintf(w, sizeof(w), "%d", wiek_opiekuna);
                     snprintf(p, sizeof(p), "0");
                     snprintf(t, sizeof(t), "2");
                     snprintf(o, sizeof(o), "0");
+                    snprintf(c, sizeof(c), "1");
 
-                    execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, NULL);
+                    execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, c, NULL);
                     perror("execl opiekun");
                     exit(1);
                 }
@@ -157,6 +158,7 @@ int main() {
                 pid_opiekuna = opiekun;
                 zarejestruj_zwiedzajacego(shm_zwiedzajacy, pid_opiekuna);
                 poprz_trasa = 2;
+                licznik++;
 
                 loguj_wiadomoscf("Wygenerowano opiekuna PID=%d wiek=%d dla dziecka wiek=%d (TRASA 2)",
                     pid_opiekuna, wiek_opiekuna, wiek);
@@ -184,13 +186,14 @@ int main() {
         licznik_retry_fork = 0;
 
         if (pid == 0) {
-            char w[16], p[16], t[16], o[16];
+            char w[16], p[16], t[16], o[16], c[16];
             snprintf(w, sizeof(w), "%d", wiek);
             snprintf(p, sizeof(p), "%d", powtorna);
             snprintf(t, sizeof(t), "%d", poprz_trasa);
             snprintf(o, sizeof(o), "%d", pid_opiekuna);
+            snprintf(c, sizeof(c), "0");
 
-            execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, NULL);
+            execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, c, NULL);
             perror("execl zwiedzajacy");
             exit(1);
         }

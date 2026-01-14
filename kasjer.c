@@ -57,6 +57,7 @@ typedef struct {
     int seniorow;
     int powtornych;
     int dzieci_darmo;
+    int opiekunow;
 } Statystyki;
 
 Statystyki statystyki = { 0 };
@@ -69,6 +70,7 @@ void wyswietl_raport() {
     loguj_wiadomoscf("Trasa 2 zaakceptowano:          %4d zwiedzajacych", statystyki.trasa2);
     loguj_wiadomoscf("Odrzucono:                       %4d zwiedzajacych", statystyki.odrzuconych);
     loguj_wiadomosc("----------------------------------------------------------------");
+    loguj_wiadomoscf("Opiekunow (TRASA 2):             %4d zwiedzajacych", statystyki.opiekunow);
     loguj_wiadomoscf("Dzieci <8 z opiekunami:          %4d par", statystyki.dzieci_z_opiekunami);
     loguj_wiadomoscf("Dzieci <3 (darmowy wstep):       %4d zwiedzajacych", statystyki.dzieci_darmo);
     loguj_wiadomoscf("Dzieci odrzucone:                %4d zwiedzajacych", statystyki.dzieci_bez_opiekunow);
@@ -109,6 +111,7 @@ int main() {
 
     loguj_wiadomosc("Gotowy: kolejka priorytetowa (powtorne > zwykle)");
     loguj_wiadomosc("REGULAMIN: Dzieci <8 z opiekunem TYLKO trasa 2");
+    loguj_wiadomosc("REGULAMIN: Opiekunowie dzieci <8 TYLKO trasa 2");
 
     loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
 
@@ -181,7 +184,14 @@ int main() {
         int decyzja = DECYZJA_ODRZUCONY;
         int trasa = 0;
 
-        if (zadanie.wiek < 8) {
+        if (zadanie.czy_opiekun) {
+            decyzja = DECYZJA_TRASA2;
+            trasa = 2;
+            statystyki.opiekunow++;
+            loguj_wiadomoscf("ACCEPT: PID=%d opiekun (dziecko <8) -> trasa 2",
+                zadanie.pid_zwiedzajacego);
+        }
+        else if (zadanie.wiek < 8) {
             if (zadanie.pid_opiekuna > 0 && czy_proces_zyje(zadanie.pid_opiekuna)) {
                 trasa = 2;
                 decyzja = DECYZJA_TRASA2;
