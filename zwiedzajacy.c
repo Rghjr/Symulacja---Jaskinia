@@ -98,6 +98,7 @@ int main(int argc, char* argv[]) {
 
     int msgid_kasjer = podlacz_msg_helper(KLUCZ_MSG_KASJER);
     if (msgid_kasjer == -1) {
+        perror("msgget KLUCZ_MSG_KASJER");
         loguj_wiadomoscf("ERROR: Nie mozna podlaczyc KLUCZ_MSG_KASJER: %s", strerror(errno));
         return 0;
     }
@@ -112,6 +113,7 @@ int main(int argc, char* argv[]) {
     zadanie.czy_opiekun = czy_opiekun;
 
     if (msgsnd(msgid_kasjer, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long), 0) == -1) {
+        perror("msgsnd kasjer zadanie");
         loguj_wiadomoscf("ERROR: msgsnd kasjer: %s", strerror(errno));
         return 0;
     }
@@ -141,6 +143,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     else {
+        perror("msgrcv odpowiedz od kasjera");
         loguj_wiadomoscf("ERROR: msgrcv odpowiedz: %s", strerror(errno));
         return 0;
     }
@@ -167,6 +170,7 @@ int main(int argc, char* argv[]) {
 
     int msgid_przewodnik = podlacz_msg_helper(trasa == 1 ? KLUCZ_MSG_PRZEWODNIK1 : KLUCZ_MSG_PRZEWODNIK2);
     if (msgid_przewodnik == -1) {
+        perror("msgget KLUCZ_MSG_PRZEWODNIK");
         loguj_wiadomoscf("ERROR: Nie mozna podlaczyc kolejki przewodnika: %s", strerror(errno));
         return 0;
     }
@@ -177,6 +181,7 @@ int main(int argc, char* argv[]) {
     wiadomosc_przew.wiek = wiek;
 
     if (msgsnd(msgid_przewodnik, &wiadomosc_przew, sizeof(WiadomoscPrzewodnik) - sizeof(long), 0) == -1) {
+        perror("msgsnd przewodnik");
         loguj_wiadomoscf("ERROR: msgsnd przewodnik: %s", strerror(errno));
         return 0;
     }

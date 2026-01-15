@@ -79,6 +79,7 @@ int main() {
 
     if (podlacz_shm_helper(KLUCZ_SHM_JASKINIA, (void**)&shm_j) == -1 ||
         podlacz_shm_helper(KLUCZ_SHM_ZWIEDZAJACY, (void**)&shm_zwiedzajacy) == -1) {
+        perror("shmget SHM");
         loguj_wiadomosc("ERROR: Nie mozna podlaczyc pamieci wspoldzielonej");
         BEZPIECZNY_SHMDT(shm_j);
         BEZPIECZNY_SHMDT(shm_zwiedzajacy);

@@ -50,7 +50,7 @@
 
 #define OPOZNIENIE_GENERATORA_MIN 0
 #define OPOZNIENIE_GENERATORA_MAX 5
-#define SZANSA_POWTORNA 5
+#define SZANSA_POWTORNA 10
 #define SZANSA_DZIECKO_OPIEKUN 70
 #define MIN_WIEK 1
 #define MAX_WIEK 80
@@ -86,7 +86,6 @@
 #define KLUCZ_MSG_KASJER 0x3001
 #define KLUCZ_MSG_PRZEWODNIK1 0x3002
 #define KLUCZ_MSG_PRZEWODNIK2 0x3003
-#define KLUCZ_MSG_OPIEKUN_ACK 0x3004
 
 #define TYP_MSG_ZADANIE 1
 #define TYP_MSG_ODPOWIEDZ 2
@@ -145,11 +144,6 @@ typedef struct {
     pid_t pid_zwiedzajacego;
     int wiek;
 } WiadomoscPrzewodnik;
-
-typedef struct {
-    long mtype;
-    pid_t pid_opiekuna;
-} WiadomoscOpiekunAck;
 
 union semun {
     int val;

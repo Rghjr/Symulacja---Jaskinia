@@ -123,9 +123,6 @@ void wyczysc_ipc() {
     if ((msgid = msgget(KLUCZ_MSG_PRZEWODNIK2, 0)) != -1) {
         msgctl(msgid, IPC_RMID, NULL);
     }
-    if ((msgid = msgget(KLUCZ_MSG_OPIEKUN_ACK, 0)) != -1) {
-        msgctl(msgid, IPC_RMID, NULL);
-    }
 
     loguj_wiadomosc("Czyszczenie IPC zakonczone");
 }
@@ -150,6 +147,7 @@ int main() {
         return 1;
     }
     if (sem_log == -1) {
+        perror("semget KLUCZ_SEM_LOG");
         loguj_wiadomosc("BLAD: Nie udalo sie utworzyc semafora logow");
         return 1;
     }
@@ -168,6 +166,7 @@ int main() {
 
     if (shmid_jaskinia == -1 || shmid_kladka1 == -1 || shmid_kladka2 == -1 ||
         shmid_trasa1 == -1 || shmid_trasa2 == -1 || shmid_zwiedzajacy == -1) {
+        perror("shmget SHM");
         loguj_wiadomosc("BLAD: Nie udalo sie utworzyc SHM");
         wyczysc_ipc();
         return 1;
@@ -183,6 +182,7 @@ int main() {
 
     if (sem1_miejsca == -1 || sem2_miejsca == -1 ||
         sem_trasa1_mutex == -1 || sem_trasa2_mutex == -1) {
+        perror("semget SEM");
         loguj_wiadomosc("BLAD: Nie udalo sie utworzyc semaforow");
         wyczysc_ipc();
         return 1;
@@ -191,13 +191,12 @@ int main() {
     int msg_kasjer = utworz_msg(KLUCZ_MSG_KASJER);
     int msg_przewodnik1 = utworz_msg(KLUCZ_MSG_PRZEWODNIK1);
     int msg_przewodnik2 = utworz_msg(KLUCZ_MSG_PRZEWODNIK2);
-    int msg_opiekun_ack = utworz_msg(KLUCZ_MSG_OPIEKUN_ACK);
 
     SPRAWDZ_EEXIST_I_ZAKONCZ(msg_kasjer == -2 || msg_przewodnik1 == -2 ||
-        msg_przewodnik2 == -2 || msg_opiekun_ack == -2, "MSG");
+        msg_przewodnik2 == -2, "MSG");
 
-    if (msg_kasjer == -1 || msg_przewodnik1 == -1 || msg_przewodnik2 == -1 ||
-        msg_opiekun_ack == -1) {
+    if (msg_kasjer == -1 || msg_przewodnik1 == -1 || msg_przewodnik2 == -1) {
+        perror("msgget MSG");
         loguj_wiadomosc("BLAD: Nie udalo sie utworzyc kolejek komunikatow");
         wyczysc_ipc();
         return 1;
@@ -214,6 +213,7 @@ int main() {
 
     if (shm_j == (void*)-1 || shm_k1 == (void*)-1 || shm_k2 == (void*)-1 ||
         shm_t1 == (void*)-1 || shm_t2 == (void*)-1 || shm_zwiedzajacy == (void*)-1) {
+        perror("shmat SHM");
         loguj_wiadomosc("BLAD: shmat failed");
         wyczysc_ipc();
         return 1;
@@ -242,13 +242,40 @@ int main() {
     pthread_condattr_init(&cond_attr);
     pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
 
-    if (pthread_mutex_init(&shm_j->mutex, &mutex_attr) != 0 ||
-        pthread_cond_init(&shm_j->cond_otwarta, &cond_attr) != 0 ||
-        pthread_mutex_init(&shm_k1->mutex, &mutex_attr) != 0 ||
-        pthread_cond_init(&shm_k1->cond, &cond_attr) != 0 ||
-        pthread_mutex_init(&shm_k2->mutex, &mutex_attr) != 0 ||
-        pthread_cond_init(&shm_k2->cond, &cond_attr) != 0) {
-        loguj_wiadomosc("BLAD: pthread_init failed");
+    int ret;
+    if ((ret = pthread_mutex_init(&shm_j->mutex, &mutex_attr)) != 0) {
+        fprintf(stderr, "pthread_mutex_init shm_j: %s\n", strerror(ret));
+        loguj_wiadomosc("BLAD: pthread_mutex_init shm_j failed");
+        wyczysc_ipc();
+        return 1;
+    }
+    if ((ret = pthread_cond_init(&shm_j->cond_otwarta, &cond_attr)) != 0) {
+        fprintf(stderr, "pthread_cond_init shm_j: %s\n", strerror(ret));
+        loguj_wiadomosc("BLAD: pthread_cond_init shm_j failed");
+        wyczysc_ipc();
+        return 1;
+    }
+    if ((ret = pthread_mutex_init(&shm_k1->mutex, &mutex_attr)) != 0) {
+        fprintf(stderr, "pthread_mutex_init shm_k1: %s\n", strerror(ret));
+        loguj_wiadomosc("BLAD: pthread_mutex_init shm_k1 failed");
+        wyczysc_ipc();
+        return 1;
+    }
+    if ((ret = pthread_cond_init(&shm_k1->cond, &cond_attr)) != 0) {
+        fprintf(stderr, "pthread_cond_init shm_k1: %s\n", strerror(ret));
+        loguj_wiadomosc("BLAD: pthread_cond_init shm_k1 failed");
+        wyczysc_ipc();
+        return 1;
+    }
+    if ((ret = pthread_mutex_init(&shm_k2->mutex, &mutex_attr)) != 0) {
+        fprintf(stderr, "pthread_mutex_init shm_k2: %s\n", strerror(ret));
+        loguj_wiadomosc("BLAD: pthread_mutex_init shm_k2 failed");
+        wyczysc_ipc();
+        return 1;
+    }
+    if ((ret = pthread_cond_init(&shm_k2->cond, &cond_attr)) != 0) {
+        fprintf(stderr, "pthread_cond_init shm_k2: %s\n", strerror(ret));
+        loguj_wiadomosc("BLAD: pthread_cond_init shm_k2 failed");
         wyczysc_ipc();
         return 1;
     }
@@ -260,6 +287,12 @@ int main() {
     loguj_wiadomosc("Uruchamiam workery");
 
     pid_t pid_kasjer = fork();
+    if (pid_kasjer == -1) {
+        perror("fork kasjer");
+        loguj_wiadomosc("BLAD: fork kasjer failed");
+        wyczysc_ipc();
+        return 1;
+    }
     if (pid_kasjer == 0) {
         execl("./kasjer", "kasjer", NULL);
         perror("execl kasjer");
@@ -268,6 +301,12 @@ int main() {
     loguj_wiadomoscf("Uruchomiono kasjer: PID=%d", pid_kasjer);
 
     pid_t pid_przewodnik1 = fork();
+    if (pid_przewodnik1 == -1) {
+        perror("fork przewodnik1");
+        loguj_wiadomosc("BLAD: fork przewodnik1 failed");
+        wyczysc_ipc();
+        return 1;
+    }
     if (pid_przewodnik1 == 0) {
         execl("./przewodnik", "przewodnik", "1", NULL);
         perror("execl przewodnik1");
@@ -276,6 +315,12 @@ int main() {
     loguj_wiadomoscf("Uruchomiono przewodnik1: PID=%d", pid_przewodnik1);
 
     pid_t pid_przewodnik2 = fork();
+    if (pid_przewodnik2 == -1) {
+        perror("fork przewodnik2");
+        loguj_wiadomosc("BLAD: fork przewodnik2 failed");
+        wyczysc_ipc();
+        return 1;
+    }
     if (pid_przewodnik2 == 0) {
         execl("./przewodnik", "przewodnik", "2", NULL);
         perror("execl przewodnik2");
@@ -288,6 +333,12 @@ int main() {
     sleep(1);
 
     pid_t pid_generator = fork();
+    if (pid_generator == -1) {
+        perror("fork generator");
+        loguj_wiadomosc("BLAD: fork generator failed");
+        wyczysc_ipc();
+        return 1;
+    }
     if (pid_generator == 0) {
         execl("./generator", "generator", NULL);
         perror("execl generator");

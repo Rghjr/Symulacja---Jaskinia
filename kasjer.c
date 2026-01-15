@@ -52,7 +52,7 @@ typedef struct {
     int trasa1;
     int trasa2;
     int odrzuconych;
-    int dzieci_z_opiekunami;
+    int dzieci_z_opiekunem;
     int dzieci_bez_opiekunow;
     int seniorow;
     int powtornych;
@@ -71,7 +71,7 @@ void wyswietl_raport() {
     loguj_wiadomoscf("Odrzucono:                       %4d zwiedzajacych", statystyki.odrzuconych);
     loguj_wiadomosc("----------------------------------------------------------------");
     loguj_wiadomoscf("Opiekunow (TRASA 2):             %4d zwiedzajacych", statystyki.opiekunow);
-    loguj_wiadomoscf("Dzieci <8 z opiekunami:          %4d par", statystyki.dzieci_z_opiekunami);
+    loguj_wiadomoscf("Dzieci <8 z opiekunem:           %4d zwiedzajacych", statystyki.dzieci_z_opiekunem);
     loguj_wiadomoscf("Dzieci <3 (darmowy wstep):       %4d zwiedzajacych", statystyki.dzieci_darmo);
     loguj_wiadomoscf("Dzieci odrzucone:                %4d zwiedzajacych", statystyki.dzieci_bez_opiekunow);
     loguj_wiadomoscf("Seniorzy >75:                    %4d zwiedzajacych", statystyki.seniorow);
@@ -96,6 +96,7 @@ int main() {
     ShmJaskinia* shm_j = NULL;
 
     if (podlacz_shm_helper(KLUCZ_SHM_JASKINIA, (void**)&shm_j) == -1) {
+        perror("shmget KLUCZ_SHM_JASKINIA");
         loguj_wiadomosc("ERROR: Nie mozna podlaczyc KLUCZ_SHM_JASKINIA");
         return 1;
     }
@@ -104,6 +105,7 @@ int main() {
 
     int msgid = podlacz_msg_helper(KLUCZ_MSG_KASJER);
     if (msgid == -1) {
+        perror("msgget KLUCZ_MSG_KASJER");
         loguj_wiadomosc("ERROR: Nie mozna podlaczyc KLUCZ_MSG_KASJER");
         BEZPIECZNY_SHMDT(shm_j);
         return 1;
@@ -171,6 +173,10 @@ int main() {
                 loguj_wiadomosc("Kolejka usunieta, zamykam");
                 break;
             }
+            else {
+                perror("msgrcv KLUCZ_MSG_KASJER");
+                loguj_wiadomoscf("ERROR: msgrcv: %s", strerror(errno));
+            }
         }
 
         if (!otrzymano) {
@@ -199,7 +205,7 @@ int main() {
                 if (zadanie.wiek < 3) {
                     statystyki.dzieci_darmo++;
                 }
-                statystyki.dzieci_z_opiekunami++;
+                statystyki.dzieci_z_opiekunem++;
             }
             else {
                 loguj_wiadomoscf("REJECT: PID=%d dziecko<%d %s",
@@ -247,6 +253,7 @@ int main() {
             }
         }
         else {
+            perror("msgsnd odpowiedz");
             loguj_wiadomoscf("ERROR: msgsnd odpowiedz: %s", strerror(errno));
         }
     }
