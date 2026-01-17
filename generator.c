@@ -6,10 +6,12 @@ int globalny_semid_log = -1;
 volatile sig_atomic_t kontynuuj = 1;
 void obsluga_sigterm(int sig) { (void)sig; kontynuuj = 0; }
 
+/// Funkcja loguj¹ca - zapisuje do common.log i generator.log
 void loguj_wiadomosc(const char* wiadomosc) {
     int sem_zdobyty = 0;
     char ts[64], buf[512];
 
+    /// Próbuj zdobyæ semafor logów
     if (globalny_semid_log != -1) {
         struct sembuf op = { 0, -1, 0 };
         if (bezpieczny_semop(globalny_semid_log, &op, 1) == 0) {
@@ -17,10 +19,12 @@ void loguj_wiadomosc(const char* wiadomosc) {
         }
     }
 
+    /// Timestamp + formatowanie
     time_t teraz = time(NULL);
     strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&teraz));
     snprintf(buf, sizeof(buf), "[%s] [PID:%d] [GENERATOR] %s\n", ts, getpid(), wiadomosc);
 
+    /// Zapis do obu logów
     int fd = open("jaskinia_common.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd != -1) {
         bezpieczny_zapis_wszystko(fd, buf, strlen(buf));
@@ -33,12 +37,14 @@ void loguj_wiadomosc(const char* wiadomosc) {
         close(fd);
     }
 
+    /// Zwolnij semafor
     if (sem_zdobyty) {
         struct sembuf op = { 0, 1, 0 };
         bezpieczny_semop(globalny_semid_log, &op, 1);
     }
 }
 
+/// Wersja z formatowaniem jak printf
 void loguj_wiadomoscf(const char* format, ...) {
     char wiadomosc[512];
     va_list args;
@@ -48,7 +54,9 @@ void loguj_wiadomoscf(const char* format, ...) {
     loguj_wiadomosc(wiadomosc);
 }
 
+/// Dodaj PID zwiedzaj¹cego do globalnej listy - atomic operation!
 void zarejestruj_zwiedzajacego(ShmZwiedzajacy* shm_zwiedzajacy, pid_t pid) {
+    /// __sync_fetch_and_add to atomic - bezpieczne nawet bez mutexu
     int idx = __sync_fetch_and_add(&shm_zwiedzajacy->licznik, 1);
     if (idx < MAX_ZWIEDZAJACYCH) {
         shm_zwiedzajacy->pidy[idx] = pid;
@@ -63,13 +71,14 @@ void zarejestruj_zwiedzajacego(ShmZwiedzajacy* shm_zwiedzajacy, pid_t pid) {
 int main() {
     signal(SIGTERM, obsluga_sigterm);
 
+    /// Ignoruj SIGCHLD - nie chcemy zombie procesów
     struct sigaction sa;
     sa.sa_handler = SIG_DFL;
-    sa.sa_flags = SA_NOCLDWAIT;
+    sa.sa_flags = SA_NOCLDWAIT;  /// Automatyczne zbieranie dzieci
     sigemptyset(&sa.sa_mask);
     sigaction(SIGCHLD, &sa, NULL);
 
-    srand(time(NULL) ^ getpid());
+    srand(time(NULL) ^ getpid());  /// Seed dla rand() - ka¿dy proces inny
 
     INIT_SEMAFOR_LOG();
     loguj_wiadomosc("START");
@@ -77,6 +86,7 @@ int main() {
     ShmJaskinia* shm_j = NULL;
     ShmZwiedzajacy* shm_zwiedzajacy = NULL;
 
+    /// Pod³¹cz siê do shared memory
     if (podlacz_shm_helper(KLUCZ_SHM_JASKINIA, (void**)&shm_j) == -1 ||
         podlacz_shm_helper(KLUCZ_SHM_ZWIEDZAJACY, (void**)&shm_zwiedzajacy) == -1) {
         perror("shmget SHM");
@@ -89,6 +99,7 @@ int main() {
     loguj_wiadomoscf("Generator wystartowany PID=%d", getpid());
     loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
 
+    /// Czekaj a¿ stra¿nik otworzy jaskiniê
     pthread_mutex_lock(&shm_j->mutex);
     while (!shm_j->otwarta && kontynuuj) {
         pthread_cond_wait(&shm_j->cond_otwarta, &shm_j->mutex);
@@ -110,7 +121,9 @@ int main() {
     int licznik_retry_fork = 0;
     const int MAX_RETRY_FORK = 5;
 
+    /// G³ówna pêtla - generujemy zwiedzaj¹cych losowo
     while (kontynuuj) {
+        /// SprawdŸ czy jaskinia dalej otwarta
         pthread_mutex_lock(&shm_j->mutex);
         int otwarta = shm_j->otwarta;
         pthread_mutex_unlock(&shm_j->mutex);
@@ -120,13 +133,16 @@ int main() {
             break;
         }
 
+        /// Losuj parametry zwiedzaj¹cego
         int wiek = MIN_WIEK + (rand() % (MAX_WIEK - MIN_WIEK + 1));
-        int powtorna = (rand() % 100) < SZANSA_POWTORNA ? 1 : 0;
-        int poprz_trasa = (rand() % 2) + 1;
+        int powtorna = (rand() % 100) < SZANSA_POWTORNA ? 1 : 0;  /// 10% szansy
+        int poprz_trasa = (rand() % 2) + 1;  /// 1 lub 2
         pid_t pid_opiekuna = 0;
 
+        /// Jeœli dziecko <8 lat - 70% szansy ¿e przyjdzie z opiekunem
         if (wiek < 8) {
             if (rand() % 100 < SZANSA_DZIECKO_OPIEKUN) {
+                /// SprawdŸ czy jest miejsce na parê opiekun+dziecko
                 if (shm_zwiedzajacy->licznik >= MAX_ZWIEDZAJACYCH - 1) {
                     loguj_wiadomosc("Brak miejsca na pare opiekun-dziecko, czekam");
                     sleep(2);
@@ -135,6 +151,7 @@ int main() {
 
                 int wiek_opiekuna = MIN_WIEK_OPIEKUNA + (rand() % (MAX_WIEK_OPIEKUNA - MIN_WIEK_OPIEKUNA + 1));
 
+                /// Fork opiekuna NAJPIERW
                 pid_t opiekun = fork();
                 if (opiekun == -1) {
                     perror("fork opiekun");
@@ -143,13 +160,14 @@ int main() {
                     continue;
                 }
 
-                if (opiekun == 0) {
+                if (opiekun == 0) {  /// Proces dziecka (opiekun)
+                    /// Argumenty: wiek, powtorna=0, poprz_trasa=2, pid_opiekuna=0, czy_opiekun=1
                     char w[16], p[16], t[16], o[16], c[16];
                     snprintf(w, sizeof(w), "%d", wiek_opiekuna);
                     snprintf(p, sizeof(p), "0");
-                    snprintf(t, sizeof(t), "2");
+                    snprintf(t, sizeof(t), "2");  /// Opiekunowie zawsze trasa 2!
                     snprintf(o, sizeof(o), "0");
-                    snprintf(c, sizeof(c), "1");
+                    snprintf(c, sizeof(c), "1");  /// czy_opiekun=1
 
                     execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, c, NULL);
                     perror("execl opiekun");
@@ -158,7 +176,7 @@ int main() {
 
                 pid_opiekuna = opiekun;
                 zarejestruj_zwiedzajacego(shm_zwiedzajacy, pid_opiekuna);
-                poprz_trasa = 2;
+                poprz_trasa = 2;  /// Dziecko te¿ na trasê 2
                 licznik++;
 
                 loguj_wiadomoscf("Wygenerowano opiekuna PID=%d wiek=%d dla dziecka wiek=%d (TRASA 2)",
@@ -169,6 +187,7 @@ int main() {
         loguj_wiadomoscf("Generuje zwiedzajacego #%d: wiek=%d powtorna=%d poprz=%d opiekun=%d",
             licznik + 1, wiek, powtorna, poprz_trasa, pid_opiekuna);
 
+        /// Fork zwiedzaj¹cego
         pid_t pid = fork();
         if (pid == -1) {
             perror("fork zwiedzajacy");
@@ -186,13 +205,13 @@ int main() {
 
         licznik_retry_fork = 0;
 
-        if (pid == 0) {
+        if (pid == 0) {  /// Proces dziecka (zwiedzaj¹cy)
             char w[16], p[16], t[16], o[16], c[16];
             snprintf(w, sizeof(w), "%d", wiek);
             snprintf(p, sizeof(p), "%d", powtorna);
             snprintf(t, sizeof(t), "%d", poprz_trasa);
             snprintf(o, sizeof(o), "%d", pid_opiekuna);
-            snprintf(c, sizeof(c), "0");
+            snprintf(c, sizeof(c), "0");  /// czy_opiekun=0
 
             execl("./zwiedzajacy", "zwiedzajacy", w, p, t, o, c, NULL);
             perror("execl zwiedzajacy");
@@ -202,6 +221,7 @@ int main() {
         zarejestruj_zwiedzajacego(shm_zwiedzajacy, pid);
         licznik++;
 
+        /// Losowe opóŸnienie przed kolejnym zwiedzaj¹cym
         int opoznienie = OPOZNIENIE_GENERATORA_MIN + (rand() % (OPOZNIENIE_GENERATORA_MAX - OPOZNIENIE_GENERATORA_MIN + 1));
         sleep(opoznienie);
     }

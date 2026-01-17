@@ -4,18 +4,20 @@
 
 int globalny_semid_log = -1;
 
+/// Flagi volatile sig_atomic_t - bezpieczne w handlerach sygna³ów
 volatile sig_atomic_t kontynuuj = 1;
-volatile sig_atomic_t zamkniecie_otrzymane = 0;
-volatile sig_atomic_t na_trasie = 0;
-volatile sig_atomic_t alarm_otrzymany = 0;
+volatile sig_atomic_t zamkniecie_otrzymane = 0;  /// Czy dostaliœmy sygna³ zamkniêcia (SIGUSR1/2)
+volatile sig_atomic_t na_trasie = 0;             /// Czy aktualnie prowadzimy grupê po trasie
+volatile sig_atomic_t alarm_otrzymany = 0;       /// Czy timeout zbierania grupy min¹³
 
 void obsluga_sigterm(int sig) { (void)sig; kontynuuj = 0; }
-void obsluga_zamkniecie(int sig) { (void)sig; zamkniecie_otrzymane = 1; }
+void obsluga_zamkniecie(int sig) { (void)sig; zamkniecie_otrzymane = 1; }  /// SIGUSR1 lub SIGUSR2
 void obsluga_alarm(int sig) { (void)sig; alarm_otrzymany = 1; }
 
-int NUMER;
+int NUMER;  /// Numer trasy: 1 lub 2
 
 void loguj_wiadomosc(const char* wiadomosc) {
+    /// Log do pliku przewodnik1.log lub przewodnik2.log
     char nazwa_pliku[64];
     snprintf(nazwa_pliku, sizeof(nazwa_pliku), "jaskinia_przewodnik%d.log", NUMER);
 
@@ -66,6 +68,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    /// Walidacja argumentu - musi byæ 1 lub 2
     int tmp;
     if (bezpieczny_strtol(argv[1], &tmp, 1, 2) != 0) {
         fprintf(stderr, "ERROR: Numer musi byc 1 lub 2\n");
@@ -74,7 +77,7 @@ int main(int argc, char* argv[]) {
     NUMER = tmp;
 
     signal(SIGTERM, obsluga_sigterm);
-    signal(NUMER == 1 ? SIGUSR1 : SIGUSR2, obsluga_zamkniecie);
+    signal(NUMER == 1 ? SIGUSR1 : SIGUSR2, obsluga_zamkniecie);  /// Ka¿dy przewodnik ma swój sygna³!
     signal(SIGALRM, obsluga_alarm);
 
     INIT_SEMAFOR_LOG();
@@ -84,6 +87,7 @@ int main(int argc, char* argv[]) {
 
     srand(time(NULL) ^ getpid());
 
+    /// Pod³¹cz siê do wszystkich potrzebnych struktur
     ShmJaskinia* shm_j = NULL;
     ShmKladka* shm_k1 = NULL;
     ShmKladka* shm_k2 = NULL;
@@ -124,6 +128,7 @@ int main(int argc, char* argv[]) {
 
     loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
 
+    /// Czekaj a¿ jaskinia siê otworzy
     pthread_mutex_lock(&shm_j->mutex);
     while (!shm_j->otwarta && kontynuuj) {
         pthread_cond_wait(&shm_j->cond_otwarta, &shm_j->mutex);
@@ -139,7 +144,9 @@ int main(int argc, char* argv[]) {
 
     WiadomoscPrzewodnik wiadomosc;
 
+    /// G£ÓWNA PÊTLA - zbieramy grupy i prowadzimy wycieczki
     while (kontynuuj) {
+        /// SprawdŸ czy jaskinia dalej otwarta
         pthread_mutex_lock(&shm_j->mutex);
         int otwarta = shm_j->otwarta;
         pthread_mutex_unlock(&shm_j->mutex);
@@ -155,18 +162,19 @@ int main(int argc, char* argv[]) {
 
         loguj_wiadomosc("Zbieram grupe");
 
+        /// Zbieranie grupy - max CZAS_ZBIERANIA_GRUPY sekund
         alarm_otrzymany = 0;
         alarm(CZAS_ZBIERANIA_GRUPY);
 
         while (liczba < max_osoby && !alarm_otrzymany) {
             ssize_t wynik = msgrcv(msgid, &wiadomosc, sizeof(WiadomoscPrzewodnik) - sizeof(long),
-                TYP_MSG_ZWIEDZAJACY, 0);
+                TYP_MSG_ZWIEDZAJACY, 0);  /// Blocking - czekamy na zwiedzaj¹cych
 
             if (wynik != -1) {
                 grupa[liczba++] = wiadomosc.pid_zwiedzajacego;
             }
             else if (errno == EINTR) {
-                if (alarm_otrzymany) {
+                if (alarm_otrzymany) {  /// Timeout - bierzemy co mamy
                     break;
                 }
                 continue;
@@ -181,12 +189,13 @@ int main(int argc, char* argv[]) {
         alarm(0);
 
         if (liczba == 0) {
-            usleep(500000);
+            usleep(500000);  /// Pó³ sekundy przerwy jeœli nikt nie czeka
             continue;
         }
 
         loguj_wiadomoscf("Grupa zebrana: %d zwiedzajacych", liczba);
 
+        /// WA¯NE: SprawdŸ czy nie dostaliœmy sygna³u zamkniêcia PRZED wejœciem na trasê
         sigset_t maska, stara_maska;
         sigemptyset(&maska);
         sigaddset(&maska, NUMER == 1 ? SIGUSR1 : SIGUSR2);
@@ -196,22 +205,26 @@ int main(int argc, char* argv[]) {
         sigprocmask(SIG_SETMASK, &stara_maska, NULL);
 
         if (czy_odwolac) {
+            /// Dostaliœmy sygna³ zamkniêcia PRZED tras¹ - odwo³ujemy grupê
             loguj_wiadomoscf("Sygnal zamkniecia przed trasa - odwoluje grupe %d osob", liczba);
             for (int i = 0; i < liczba; i++) {
-                if (czy_proces_zyje(grupa[i])) kill(grupa[i], SIGUSR1);
+                if (czy_proces_zyje(grupa[i])) kill(grupa[i], SIGUSR1);  /// SIGUSR1 = odwo³anie
             }
             continue;
         }
 
+        /// Sygna³ do grupy: "jesteœcie w grupie, czekajcie"
         wyslij_sygnal_do_grupy(grupa, liczba, SIGRTMIN + 0, "grupa zebrana");
 
         loguj_wiadomosc("Rezerwuje miejsca na trasie");
 
+        /// Rezerwuj miejsca atomowo - sprawdŸ czy nie przekroczymy Ni
         bezpieczny_sem_wait(sem_trasa_mutex, 0);
         int poprzednia_wartosc = shm_t->osoby;
         int nowa_wartosc = poprzednia_wartosc + liczba;
 
         if (nowa_wartosc > max_osoby) {
+            /// Za du¿o! Czêœæ grupy musimy odrzuciæ
             int dozwolone = max_osoby - poprzednia_wartosc;
             if (dozwolone < 0) dozwolone = 0;
 
@@ -220,6 +233,7 @@ int main(int argc, char* argv[]) {
             shm_t->osoby = max_osoby;
             bezpieczny_sem_signal(sem_trasa_mutex, 0);
 
+            /// Odrzuæ nadwy¿kê
             for (int i = dozwolone; i < liczba; i++) {
                 if (czy_proces_zyje(grupa[i])) {
                     kill(grupa[i], SIGUSR1);
@@ -240,29 +254,34 @@ int main(int argc, char* argv[]) {
 
         loguj_wiadomoscf("Trasa zarezerwowana: bylo=%d teraz=%d/%d", poprzednia_wartosc, nowa_wartosc, max_osoby);
 
+        /// STRATEGIA: Lock->Cross->Unlock (maksymalna przepustowoœæ!)
         loguj_wiadomosc("Blokuje kladki (WEJSCIE)");
         zablokuj_obie_kladki(shm_k1, shm_k2, KIERUNEK_WEJSCIE);
 
+        /// Podziel grupê na dwie k³adki (mniej wiêcej po po³owie)
         int na_k1 = liczba / 2;
         int na_k2 = liczba - na_k1;
 
         loguj_wiadomosc("Przeprowadzam grupe (WEJSCIE)");
         wyslij_sygnal_do_grupy(grupa, liczba, SIGRTMIN + 1, "przechodzenie");
 
+        /// PrzeprowadŸ przez obie k³adki równolegle
         if (na_k1 > 0) przeprowadz_przez_kladke(na_k1, shm_k1, sem1_miejsca, 1, 0, NULL, "WEJSCIE");
         if (na_k2 > 0) przeprowadz_przez_kladke(na_k2, shm_k2, sem2_miejsca, 2, 0, NULL, "WEJSCIE");
 
         loguj_wiadomosc("Zwalniam kladki (inne grupy moga przechodzic)");
-        zwolnij_obie_kladki(shm_k1, shm_k2);
+        zwolnij_obie_kladki(shm_k1, shm_k2);  /// Unlock - teraz inna grupa mo¿e wchodziæ!
 
         loguj_wiadomoscf("Zwiedzanie rozpoczete: trasa=%d czas=%ds", NUMER, czas);
 
+        /// Ustawiamy flagê ¿e jesteœmy NA TRASIE - jeœli teraz przyjdzie SIGUSR, koñczymy normalnie
         sigprocmask(SIG_BLOCK, &maska, &stara_maska);
         na_trasie = 1;
         sigprocmask(SIG_SETMASK, &stara_maska, NULL);
 
+        /// Sygna³ do grupy: "zaczynamy zwiedzanie!"
         wyslij_sygnal_do_grupy(grupa, liczba, SIGRTMIN + 2, "zwiedzanie");
-        sleep(czas);
+        sleep(czas);  /// Zwiedzamy T1 lub T2 sekund
 
         sigprocmask(SIG_BLOCK, &maska, &stara_maska);
         na_trasie = 0;
@@ -270,16 +289,19 @@ int main(int argc, char* argv[]) {
 
         loguj_wiadomosc("Zwiedzanie zakonczone - wracamy");
 
+        /// WYJŒCIE - znowu Lock->Cross->Unlock
         loguj_wiadomosc("Blokuje kladki (WYJSCIE)");
         zablokuj_obie_kladki(shm_k1, shm_k2, KIERUNEK_WYJSCIE);
 
         loguj_wiadomosc("Przeprowadzam grupe (WYJSCIE)");
+        /// UWAGA: Teraz wysy³amy SIGUSR2 do ka¿dego gdy przejdzie k³adkê (w helpers)
         if (na_k1 > 0) przeprowadz_przez_kladke(na_k1, shm_k1, sem1_miejsca, 1, 0, grupa, "WYJSCIE");
         if (na_k2 > 0) przeprowadz_przez_kladke(na_k2, shm_k2, sem2_miejsca, 2, na_k1, grupa, "WYJSCIE");
 
         loguj_wiadomosc("Zwalniam kladki i grupe");
         zwolnij_obie_kladki(shm_k1, shm_k2);
 
+        /// Zwolnij zarezerwowane miejsca na trasie
         bezpieczny_sem_wait(sem_trasa_mutex, 0);
         shm_t->osoby -= liczba;
         bezpieczny_sem_signal(sem_trasa_mutex, 0);

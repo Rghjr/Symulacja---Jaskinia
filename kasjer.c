@@ -1,4 +1,4 @@
-#include "common.h"
+﻿#include "common.h"
 #include "common_helpers.h"
 
 volatile sig_atomic_t kontynuuj = 1;
@@ -48,6 +48,7 @@ void loguj_wiadomoscf(const char* format, ...) {
     loguj_wiadomosc(wiadomosc);
 }
 
+/// Struktura do zbierania statystyk - raport na końcu
 typedef struct {
     int trasa1;
     int trasa2;
@@ -62,6 +63,7 @@ typedef struct {
 
 Statystyki statystyki = { 0 };
 
+/// Wyświetl raport końcowy - ładnie sformatowany
 void wyswietl_raport() {
     loguj_wiadomosc("================================================================");
     loguj_wiadomosc("                    RAPORT KONCOWY - KASJER                     ");
@@ -117,6 +119,7 @@ int main() {
 
     loguj_wiadomosc("Czekam na otwarcie jaskini (Tp)");
 
+    /// Czekaj aż jaskinia się otworzy
     pthread_mutex_lock(&shm_j->mutex);
     while (!shm_j->otwarta && kontynuuj) {
         pthread_cond_wait(&shm_j->cond_otwarta, &shm_j->mutex);
@@ -134,6 +137,7 @@ int main() {
     WiadomoscKasjer zadanie;
     WiadomoscOdpowiedz odpowiedz;
 
+    /// Główna pętla - obsługa prośb o bilety
     while (kontynuuj) {
         pthread_mutex_lock(&shm_j->mutex);
         int otwarta = shm_j->otwarta;
@@ -147,15 +151,18 @@ int main() {
 
         int otrzymano = 0;
 
+        /// PRIORYTET 1: Powtórne wizyty (50% zniżka)
         if (msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
             TYP_MSG_POWTORNA, IPC_NOWAIT) != -1) {
             otrzymano = 1;
             statystyki.powtornych++;
         }
+        /// PRIORYTET 2: Zwykłe wizyty
         else if (msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
             TYP_MSG_ZADANIE, IPC_NOWAIT) != -1) {
             otrzymano = 1;
         }
+        /// Jeśli obie puste - czekaj na cokolwiek (blocking)
         else if (errno == ENOMSG) {
             ssize_t wynik = msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
                 0, 0);
@@ -187,9 +194,11 @@ int main() {
             continue;
         }
 
+        /// LOGIKA PRZYDZIELANIA TRASY - implementacja regulaminu
         int decyzja = DECYZJA_ODRZUCONY;
         int trasa = 0;
 
+        /// REGUŁA 1: Opiekunowie dzieci <8 → TYLKO TRASA 2
         if (zadanie.czy_opiekun) {
             decyzja = DECYZJA_TRASA2;
             trasa = 2;
@@ -197,28 +206,31 @@ int main() {
             loguj_wiadomoscf("ACCEPT: PID=%d opiekun (dziecko <8) -> trasa 2",
                 zadanie.pid_zwiedzajacego);
         }
+        /// REGUŁA 2: Dzieci <8 lat - MUSZĄ mieć opiekuna, TYLKO TRASA 2
         else if (zadanie.wiek < 8) {
             if (zadanie.pid_opiekuna > 0 && czy_proces_zyje(zadanie.pid_opiekuna)) {
                 trasa = 2;
                 decyzja = DECYZJA_TRASA2;
 
-                if (zadanie.wiek < 3) {
+                if (zadanie.wiek < 3) {  /// Darmowy wstęp dla <3 lat
                     statystyki.dzieci_darmo++;
                 }
                 statystyki.dzieci_z_opiekunem++;
             }
-            else {
+            else {  /// Dziecko bez opiekuna - ODRZUCONE
                 loguj_wiadomoscf("REJECT: PID=%d dziecko<%d %s",
                     zadanie.pid_zwiedzajacego, zadanie.wiek,
                     zadanie.pid_opiekuna > 0 ? "opiekun nie istnieje" : "bez opiekuna");
                 statystyki.dzieci_bez_opiekunow++;
             }
         }
+        /// REGUŁA 3: Seniorzy >75 lat → TYLKO TRASA 2
         else if (zadanie.wiek > 75) {
             decyzja = DECYZJA_TRASA2;
             trasa = 2;
             statystyki.seniorow++;
         }
+        /// REGUŁA 4: Powtórna wizyta - druga trasa (odwrotna niż poprzednia)
         else if (zadanie.powtorna_wizyta) {
             if (zadanie.poprzednia_trasa >= 1 && zadanie.poprzednia_trasa <= 2) {
                 trasa = (zadanie.poprzednia_trasa == 1) ? 2 : 1;
@@ -228,12 +240,14 @@ int main() {
                 loguj_wiadomoscf("REJECT: Nieprawidlowa poprzednia trasa=%d", zadanie.poprzednia_trasa);
             }
         }
+        /// REGUŁA 5: Normalni dorośli - losowa trasa
         else {
-            trasa = (rand() % 2) + 1;
+            trasa = (rand() % 2) + 1;  /// 1 lub 2
             decyzja = (trasa == 1) ? DECYZJA_TRASA1 : DECYZJA_TRASA2;
         }
 
-        odpowiedz.mtype = zadanie.pid_zwiedzajacego;
+        /// Wyślij odpowiedź do zwiedzającego
+        odpowiedz.mtype = zadanie.pid_zwiedzajacego;  /// Jego PID jako typ wiadomości
         odpowiedz.decyzja = decyzja;
         odpowiedz.przydzielona_trasa = trasa;
 
@@ -241,6 +255,7 @@ int main() {
             if (decyzja != DECYZJA_ODRZUCONY) {
                 loguj_wiadomoscf("ACCEPT: PID=%d trasa=%d", zadanie.pid_zwiedzajacego, trasa);
 
+                /// Aktualizuj statystyki
                 if (trasa == 1) {
                     statystyki.trasa1++;
                 }
@@ -258,6 +273,7 @@ int main() {
         }
     }
 
+    /// Koniec pracy - pokaż raport
     loguj_wiadomosc("================================================================");
     loguj_wiadomosc("Jaskinia zamknieta, generuje raport koncowy");
     wyswietl_raport();

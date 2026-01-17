@@ -3,12 +3,13 @@
 
 int globalny_semid_log = -1;
 
-volatile sig_atomic_t odwolano = 0;
-volatile sig_atomic_t w_grupie = 0;
-volatile sig_atomic_t na_kladce = 0;
-volatile sig_atomic_t zwiedzam = 0;
-volatile sig_atomic_t moze_wyjsc = 0;
-volatile sig_atomic_t alarm_otrzymany = 0;
+/// Maszyna stanów zwiedzaj¹cego - kontrolowana sygna³ami
+volatile sig_atomic_t odwolano = 0;       /// SIGUSR1 - odwo³ano (odrzucony przez kasjera/przewodnika)
+volatile sig_atomic_t w_grupie = 0;       /// SIGRTMIN+0 - zebrali mnie do grupy
+volatile sig_atomic_t na_kladce = 0;      /// SIGRTMIN+1 - idê przez k³adkê
+volatile sig_atomic_t zwiedzam = 0;       /// SIGRTMIN+2 - zwiedzam trasê
+volatile sig_atomic_t moze_wyjsc = 0;     /// SIGUSR2 - przeszed³em k³adkê przy wyjœciu
+volatile sig_atomic_t alarm_otrzymany = 0;  /// SIGALRM - timeout
 
 void obsluga_sigusr1(int sig) { (void)sig; odwolano = 1; }
 void obsluga_sigrtmin0(int sig) { (void)sig; w_grupie = 1; }
@@ -60,6 +61,7 @@ void loguj_wiadomoscf(const char* format, ...) {
 }
 
 int main(int argc, char* argv[]) {
+    /// Argumenty: wiek powtorna poprz_trasa pid_opiekuna czy_opiekun
     if (argc != 6) {
         fprintf(stderr, "Uzycie: %s <wiek> <powtorna> <poprz_trasa> <pid_opiekuna> <czy_opiekun>\n", argv[0]);
         return 1;
@@ -67,6 +69,7 @@ int main(int argc, char* argv[]) {
 
     int wiek, powtorna, poprz_trasa, pid_opiekuna, czy_opiekun;
 
+    /// Walidacja wszystkich argumentów
     if (bezpieczny_strtol(argv[1], &wiek, MIN_WIEK, MAX_WIEK) != 0 ||
         bezpieczny_strtol(argv[2], &powtorna, 0, 1) != 0 ||
         bezpieczny_strtol(argv[3], &poprz_trasa, 1, 2) != 0 ||
@@ -76,6 +79,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    /// Rejestracja handlerów sygna³ów - zwiedzaj¹cy sterowany wy³¹cznie sygna³ami!
     signal(SIGUSR1, obsluga_sigusr1);
     signal(SIGRTMIN + 0, obsluga_sigrtmin0);
     signal(SIGRTMIN + 1, obsluga_sigrtmin1);
@@ -90,10 +94,12 @@ int main(int argc, char* argv[]) {
     loguj_wiadomoscf("START: wiek=%d powtorna=%d poprz=%d opiekun=%d czy_opiekun=%d",
         wiek, powtorna, poprz_trasa, pid_opiekuna, czy_opiekun);
 
+    /// SprawdŸ czy opiekun faktycznie istnieje (mo¿e siê zd¹¿y³ skoñczyæ)
     if (pid_opiekuna > 0 && !czy_proces_zyje(pid_opiekuna)) {
         loguj_wiadomoscf("WARN: Opiekun PID=%d nie istnieje podczas startu", pid_opiekuna);
     }
 
+    /// KROK 1: Idê do kasjera po bilet
     loguj_wiadomosc("STATE: Ide do kasjera");
 
     int msgid_kasjer = podlacz_msg_helper(KLUCZ_MSG_KASJER);
@@ -103,8 +109,9 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    /// Wype³nij proœbê o bilet
     WiadomoscKasjer zadanie;
-    zadanie.mtype = powtorna ? TYP_MSG_POWTORNA : TYP_MSG_ZADANIE;
+    zadanie.mtype = powtorna ? TYP_MSG_POWTORNA : TYP_MSG_ZADANIE;  /// Powtórne maj¹ priorytet!
     zadanie.pid_zwiedzajacego = moj_pid;
     zadanie.wiek = wiek;
     zadanie.powtorna_wizyta = powtorna;
@@ -118,6 +125,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    /// KROK 2: Czekam na odpowiedŸ kasjera (max TIMEOUT_ODPOWIEDZ_BILET sekund)
     loguj_wiadomosc("STATE: Czekam na bilet");
 
     WiadomoscOdpowiedz odpowiedz;
@@ -126,6 +134,7 @@ int main(int argc, char* argv[]) {
     alarm_otrzymany = 0;
     alarm(TIMEOUT_ODPOWIEDZ_BILET);
 
+    /// msgrcv z mtype=moj_pid - dostanê tylko swoj¹ odpowiedŸ
     ssize_t wynik = msgrcv(msgid_kasjer, &odpowiedz, sizeof(WiadomoscOdpowiedz) - sizeof(long),
         moj_pid, 0);
 
@@ -153,6 +162,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    /// SprawdŸ decyzjê kasjera
     if (odpowiedz.decyzja == DECYZJA_ODRZUCONY) {
         loguj_wiadomosc("REJECT: Odrzucony przez kasjera");
         return 0;
@@ -166,6 +176,7 @@ int main(int argc, char* argv[]) {
 
     loguj_wiadomoscf("TICKET: Przydzielono trase %d", trasa);
 
+    /// KROK 3: Do³¹czam do kolejki przewodnika
     loguj_wiadomosc("STATE: Dolaczam do kolejki przewodnika");
 
     int msgid_przewodnik = podlacz_msg_helper(trasa == 1 ? KLUCZ_MSG_PRZEWODNIK1 : KLUCZ_MSG_PRZEWODNIK2);
@@ -186,8 +197,10 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    /// KROK 4: Czekam na sygna³y od przewodnika - MASZYNA STANÓW
     loguj_wiadomosc("STATE: W kolejce czekam na grupe");
 
+    /// Blokujemy wszystkie sygna³y i czekamy na nie przez sigsuspend
     sigset_t maska, stara_maska;
     sigemptyset(&maska);
     sigaddset(&maska, SIGRTMIN + 0);
@@ -198,8 +211,9 @@ int main(int argc, char* argv[]) {
 
     sigprocmask(SIG_BLOCK, &maska, &stara_maska);
 
+    /// STAN 1: Czekam a¿ przewodnik zbierze grupê
     while (!odwolano && !w_grupie && !moze_wyjsc) {
-        sigsuspend(&stara_maska);
+        sigsuspend(&stara_maska);  /// Sleep z atomowym odblokowaniem sygna³ów
     }
 
     if (odwolano) {
@@ -212,6 +226,7 @@ int main(int argc, char* argv[]) {
         loguj_wiadomosc("STATE: Zebrano do grupy");
     }
 
+    /// STAN 2: Czekam a¿ przewodnik powie "idŸcie przez k³adkê"
     while (!odwolano && !na_kladce && !moze_wyjsc) {
         sigsuspend(&stara_maska);
     }
@@ -226,6 +241,7 @@ int main(int argc, char* argv[]) {
         loguj_wiadomosc("STATE: Przechodze kladke (wejscie)");
     }
 
+    /// STAN 3: Czekam a¿ przewodnik powie "zaczynamy zwiedzanie"
     while (!odwolano && !zwiedzam && !moze_wyjsc) {
         sigsuspend(&stara_maska);
     }
@@ -240,6 +256,7 @@ int main(int argc, char* argv[]) {
         loguj_wiadomoscf("STATE: Zwiedzam trase %d", trasa);
     }
 
+    /// STAN 4: Zwiedzam - czekam a¿ przewodnik powie "mo¿ecie wyjœæ" (SIGUSR2)
     while (!odwolano && !moze_wyjsc) {
         sigsuspend(&stara_maska);
     }
@@ -250,9 +267,10 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    /// STAN 5: WYJŒCIE - przeszed³em k³adkê wyjœciow¹
     if (moze_wyjsc) {
         loguj_wiadomosc("STATE: Przechodze kladke (wyjscie)");
-        sleep(1);
+        sleep(1);  /// Krótka przerwa
         loguj_wiadomosc("COMPLETE: Opuscilem jaskinie");
     }
 

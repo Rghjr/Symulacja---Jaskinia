@@ -9,13 +9,13 @@ volatile sig_atomic_t sigchld_otrzymany = 0;
 
 void obsluga_sygnalu(int sig) {
     (void)sig;
-    zakonczenie_zadane = 1;
+    zakonczenie_zadane = 1;  /// SIGINT lub SIGTERM - zaczynamy zamykanie
 }
 
 void obsluga_sigchld(int sig) {
     (void)sig;
     sigchld_otrzymany = 1;
-    while (waitpid(-1, NULL, WNOHANG) > 0);
+    while (waitpid(-1, NULL, WNOHANG) > 0);  /// Zbierz wszystkie zombie
 }
 
 void loguj_wiadomosc(const char* wiadomosc) {
@@ -54,10 +54,12 @@ void loguj_wiadomoscf(const char* format, ...) {
     loguj_wiadomosc(wiadomosc);
 }
 
+/// Funkcja czyszcz¹ca - usuwa wszystkie zasoby IPC
 void wyczysc_ipc() {
     loguj_wiadomosc("Rozpoczynam czyszczenie IPC");
     int shmid, semid, msgid;
 
+    /// Shared memory - niszcz pthread obiekty PRZED shmctl
     if ((shmid = shmget(KLUCZ_SHM_JASKINIA, 0, 0)) != -1) {
         ShmJaskinia* shm = (ShmJaskinia*)shmat(shmid, NULL, 0);
         if (shm != (void*)-1) {
@@ -88,6 +90,7 @@ void wyczysc_ipc() {
         shmctl(shmid, IPC_RMID, NULL);
     }
 
+    /// Pozosta³e segmenty pamiêci
     if ((shmid = shmget(KLUCZ_SHM_TRASA1, 0, 0)) != -1) {
         shmctl(shmid, IPC_RMID, NULL);
     }
@@ -98,6 +101,7 @@ void wyczysc_ipc() {
         shmctl(shmid, IPC_RMID, NULL);
     }
 
+    /// Semafory
     if ((semid = semget(KLUCZ_SEM_KLADKA1_MIEJSCA, 0, 0)) != -1) {
         semctl(semid, 0, IPC_RMID);
     }
@@ -114,6 +118,7 @@ void wyczysc_ipc() {
         semctl(semid, 0, IPC_RMID);
     }
 
+    /// Kolejki komunikatów
     if ((msgid = msgget(KLUCZ_MSG_KASJER, 0)) != -1) {
         msgctl(msgid, IPC_RMID, NULL);
     }
@@ -128,20 +133,22 @@ void wyczysc_ipc() {
 }
 
 int main() {
-    signal(SIGINT, obsluga_sygnalu);
+    signal(SIGINT, obsluga_sygnalu);   /// Ctrl+C
     signal(SIGTERM, obsluga_sygnalu);
-    signal(SIGCHLD, obsluga_sigchld);
+    signal(SIGCHLD, obsluga_sigchld);  /// Zombie children
 
     loguj_wiadomosc("=== START STRAZNIKA ===");
     loguj_wiadomosc("Strategia kladek: Lock->Cross->Unlock (maksymalna przepustowosc)");
 
+    /// KROK 1: Wyczyœæ stare zasoby (gdyby poprzednie uruchomienie siê crashnê³o)
     loguj_wiadomosc("Czyszczenie starych zasobow IPC");
     wyczysc_ipc();
 
     loguj_wiadomosc("Tworzenie nowych zasobow IPC");
 
+    /// KROK 2: Stwórz semafor logów (pierwszy - ¿eby inne procesy mog³y go u¿yæ)
     int sem_log = utworz_sem(KLUCZ_SEM_LOG, 1, 1);
-    if (sem_log == -2) {
+    if (sem_log == -2) {  /// -2 = EEXIST (konflikt)
         loguj_wiadomosc("=== BLAD KRYTYCZNY: KONFLIKT ZASOBOW ===");
         loguj_wiadomosc("ROZWIAZANIE: Uruchom 'make clean'");
         return 1;
@@ -153,6 +160,7 @@ int main() {
     }
     globalny_semid_log = sem_log;
 
+    /// KROK 3: Stwórz wszystkie shared memory segmenty
     int shmid_jaskinia = utworz_shm(KLUCZ_SHM_JASKINIA, sizeof(ShmJaskinia));
     int shmid_kladka1 = utworz_shm(KLUCZ_SHM_KLADKA1, sizeof(ShmKladka));
     int shmid_kladka2 = utworz_shm(KLUCZ_SHM_KLADKA2, sizeof(ShmKladka));
@@ -160,6 +168,7 @@ int main() {
     int shmid_trasa2 = utworz_shm(KLUCZ_SHM_TRASA2, sizeof(ShmTrasa));
     int shmid_zwiedzajacy = utworz_shm(KLUCZ_SHM_ZWIEDZAJACY, sizeof(ShmZwiedzajacy));
 
+    /// SprawdŸ konflikty
     SPRAWDZ_EEXIST_I_ZAKONCZ(shmid_jaskinia == -2 || shmid_kladka1 == -2 ||
         shmid_kladka2 == -2 || shmid_trasa1 == -2 ||
         shmid_trasa2 == -2 || shmid_zwiedzajacy == -2, "SHM");
@@ -172,9 +181,10 @@ int main() {
         return 1;
     }
 
-    int sem1_miejsca = utworz_sem(KLUCZ_SEM_KLADKA1_MIEJSCA, 1, K);
+    /// KROK 4: Stwórz semafory
+    int sem1_miejsca = utworz_sem(KLUCZ_SEM_KLADKA1_MIEJSCA, 1, K);  /// Inicjalizuj na K
     int sem2_miejsca = utworz_sem(KLUCZ_SEM_KLADKA2_MIEJSCA, 1, K);
-    int sem_trasa1_mutex = utworz_sem(KLUCZ_SEM_TRASA1_MUTEX, 1, 1);
+    int sem_trasa1_mutex = utworz_sem(KLUCZ_SEM_TRASA1_MUTEX, 1, 1);  /// Mutex = 1
     int sem_trasa2_mutex = utworz_sem(KLUCZ_SEM_TRASA2_MUTEX, 1, 1);
 
     SPRAWDZ_EEXIST_I_ZAKONCZ(sem1_miejsca == -2 || sem2_miejsca == -2 ||
@@ -188,6 +198,7 @@ int main() {
         return 1;
     }
 
+    /// KROK 5: Stwórz kolejki komunikatów
     int msg_kasjer = utworz_msg(KLUCZ_MSG_KASJER);
     int msg_przewodnik1 = utworz_msg(KLUCZ_MSG_PRZEWODNIK1);
     int msg_przewodnik2 = utworz_msg(KLUCZ_MSG_PRZEWODNIK2);
@@ -202,6 +213,7 @@ int main() {
         return 1;
     }
 
+    /// KROK 6: Inicjalizuj struktury w shared memory
     loguj_wiadomosc("Inicjalizuje struktury globalne");
 
     ShmJaskinia* shm_j = (ShmJaskinia*)shmat(shmid_jaskinia, NULL, 0);
@@ -219,7 +231,8 @@ int main() {
         return 1;
     }
 
-    shm_j->otwarta = 0;
+    /// Ustaw wartoœci pocz¹tkowe
+    shm_j->otwarta = 0;  /// Jaskinia ZAMKNIÊTA na start
     shm_k1->kierunek = KIERUNEK_PUSTY;
     shm_k1->osoby = 0;
     shm_k1->przewodnik_pid = 0;
@@ -232,17 +245,19 @@ int main() {
 
     time_t czas_startu;
 
+    /// KROK 7: Inicjalizuj pthread mutexy i condition variables (PROCESS_SHARED!)
     loguj_wiadomosc("Inicjalizuje pthread mutex i condition variables");
 
     pthread_mutexattr_t mutex_attr;
     pthread_mutexattr_init(&mutex_attr);
-    pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);  /// WA¯NE!
 
     pthread_condattr_t cond_attr;
     pthread_condattr_init(&cond_attr);
     pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
 
     int ret;
+    /// Dla jaskini
     if ((ret = pthread_mutex_init(&shm_j->mutex, &mutex_attr)) != 0) {
         fprintf(stderr, "pthread_mutex_init shm_j: %s\n", strerror(ret));
         loguj_wiadomosc("BLAD: pthread_mutex_init shm_j failed");
@@ -255,6 +270,7 @@ int main() {
         wyczysc_ipc();
         return 1;
     }
+    /// Dla k³adki 1
     if ((ret = pthread_mutex_init(&shm_k1->mutex, &mutex_attr)) != 0) {
         fprintf(stderr, "pthread_mutex_init shm_k1: %s\n", strerror(ret));
         loguj_wiadomosc("BLAD: pthread_mutex_init shm_k1 failed");
@@ -267,6 +283,7 @@ int main() {
         wyczysc_ipc();
         return 1;
     }
+    /// Dla k³adki 2
     if ((ret = pthread_mutex_init(&shm_k2->mutex, &mutex_attr)) != 0) {
         fprintf(stderr, "pthread_mutex_init shm_k2: %s\n", strerror(ret));
         loguj_wiadomosc("BLAD: pthread_mutex_init shm_k2 failed");
@@ -284,8 +301,11 @@ int main() {
     pthread_condattr_destroy(&cond_attr);
 
     loguj_wiadomosc("Obiekty pthread zainicjalizowane (PROCESS_SHARED)");
+
+    /// KROK 8: Uruchom workery (fork + exec)
     loguj_wiadomosc("Uruchamiam workery");
 
+    /// Kasjer
     pid_t pid_kasjer = fork();
     if (pid_kasjer == -1) {
         perror("fork kasjer");
@@ -300,6 +320,7 @@ int main() {
     }
     loguj_wiadomoscf("Uruchomiono kasjer: PID=%d", pid_kasjer);
 
+    /// Przewodnik 1
     pid_t pid_przewodnik1 = fork();
     if (pid_przewodnik1 == -1) {
         perror("fork przewodnik1");
@@ -314,6 +335,7 @@ int main() {
     }
     loguj_wiadomoscf("Uruchomiono przewodnik1: PID=%d", pid_przewodnik1);
 
+    /// Przewodnik 2
     pid_t pid_przewodnik2 = fork();
     if (pid_przewodnik2 == -1) {
         perror("fork przewodnik2");
@@ -330,8 +352,9 @@ int main() {
 
     loguj_wiadomoscf("Workery uruchomione: kasjer=%d p1=%d p2=%d", pid_kasjer, pid_przewodnik1, pid_przewodnik2);
 
-    sleep(1);
+    sleep(1);  /// Daj workerom chwilê na start
 
+    /// Generator - uruchom PRZED otwarciem jaskini
     pid_t pid_generator = fork();
     if (pid_generator == -1) {
         perror("fork generator");
@@ -346,6 +369,7 @@ int main() {
     }
     loguj_wiadomoscf("Uruchomiono generator: PID=%d", pid_generator);
 
+    /// KROK 9: Czekaj na czas otwarcia Tp (jeœli > 0)
     if (Tp > 0) {
         time_t teraz = time(NULL);
         struct tm* tm_info = localtime(&teraz);
@@ -358,11 +382,12 @@ int main() {
         }
     }
 
+    /// KROK 10: OTWÓRZ JASKINIÊ!
     loguj_wiadomosc("OTWIERAM JASKINIE (Tp osiagniete)");
 
     pthread_mutex_lock(&shm_j->mutex);
     shm_j->otwarta = 1;
-    pthread_cond_broadcast(&shm_j->cond_otwarta);
+    pthread_cond_broadcast(&shm_j->cond_otwarta);  /// ObudŸ wszystkich czekaj¹cych
     pthread_mutex_unlock(&shm_j->mutex);
 
     czas_startu = time(NULL);
@@ -370,9 +395,11 @@ int main() {
 
     int sygnaly_wyslane = 0;
 
+    /// KROK 11: Czekaj Tk sekund lub Ctrl+C
     while (!zakonczenie_zadane) {
         int uplynelo = difftime(time(NULL), czas_startu);
 
+        /// Wyœlij sygna³y zamkniêcia WYPRZEDZENIE_SYGNAL_ZAMKNIECIA sekund przed koñcem
         if (!sygnaly_wyslane && uplynelo >= (Tk - WYPRZEDZENIE_SYGNAL_ZAMKNIECIA)) {
             loguj_wiadomosc("Wysylam sygnaly zamkniecia do przewodnikow (przed Tk)");
 
@@ -397,6 +424,7 @@ int main() {
         loguj_wiadomosc("=== OTRZYMANO CTRL+C - SYSTEMATYCZNE ZAMYKANIE ===");
     }
 
+    /// KROK 12: ZAMKNIJ JASKINIÊ (brak nowych zwiedzaj¹cych)
     loguj_wiadomosc("ZAMYKAM JASKINIE (brak nowych zwiedzajacych)");
 
     pthread_mutex_lock(&shm_j->mutex);
@@ -404,6 +432,7 @@ int main() {
     pthread_cond_broadcast(&shm_j->cond_otwarta);
     pthread_mutex_unlock(&shm_j->mutex);
 
+    /// KROK 13: Czekaj a¿ wszyscy zwiedzaj¹cy wyjd¹
     loguj_wiadomosc("Czekam az wszyscy zwiedzajacy opuszcza jaskinie");
     int licznik_czekania = 0;
     while (licznik_czekania < TIMEOUT_PUSTA_JASKINIA) {
@@ -423,11 +452,13 @@ int main() {
         licznik_czekania++;
     }
 
+    /// KROK 14: SYSTEMATYCZNY CLEANUP
     loguj_wiadomosc("=== ROZPOCZYNAM SYSTEMATYCZNY CLEANUP ===");
 
     loguj_wiadomoscf("PID-y workerow: generator=%d kasjer=%d p1=%d p2=%d",
         pid_generator, pid_kasjer, pid_przewodnik1, pid_przewodnik2);
 
+    /// Zapisz listê zwiedzaj¹cych
     int liczba_zwiedzajacych = shm_zwiedzajacy->licznik;
     loguj_wiadomoscf("Lista zwiedzajacych: %d procesow", liczba_zwiedzajacych);
 
@@ -437,6 +468,7 @@ int main() {
         zwiedzajacy[prawidlowi_zwiedzajacy++] = shm_zwiedzajacy->pidy[i];
     }
 
+    /// Od³¹cz shared memory (ju¿ nie potrzeba)
     BEZPIECZNY_SHMDT(shm_j);
     BEZPIECZNY_SHMDT(shm_k1);
     BEZPIECZNY_SHMDT(shm_k2);
@@ -444,6 +476,7 @@ int main() {
     BEZPIECZNY_SHMDT(shm_t2);
     BEZPIECZNY_SHMDT(shm_zwiedzajacy);
 
+    /// Kolejnoœæ zamykania: generator -> zwiedzaj¹cy -> kasjer -> przewodnicy
     loguj_wiadomosc("KROK 1/4: Zamykanie generatora");
     zakoncz_proces(pid_generator, "generator", TIMEOUT_CZEKAJ_CLEANUP);
 
@@ -456,6 +489,7 @@ int main() {
             }
         }
 
+        /// Czekaj na wszystkich
         loguj_wiadomosc("Czekam na zakonczenie zwiedzajacych");
         for (int i = 0; i < prawidlowi_zwiedzajacy; i++) {
             pid_t pid = zwiedzajacy[i];
@@ -467,7 +501,7 @@ int main() {
                     sleep(1);
                 }
                 if (czy_proces_zyje(pid)) {
-                    kill(pid, SIGKILL);
+                    kill(pid, SIGKILL);  /// Force kill
                     waitpid(pid, NULL, 0);
                 }
             }
@@ -487,6 +521,7 @@ int main() {
 
     loguj_wiadomosc("Wszystkie procesy robocze zakonczone");
 
+    /// KROK 15: Usuñ wszystkie zasoby IPC
     wyczysc_ipc();
 
     loguj_wiadomosc("=== STRAZNIK ZAKONCZYL PRACE (ostatni proces) ===");

@@ -1,4 +1,4 @@
-#ifndef COMMON_H
+Ôªø#ifndef COMMON_H
 #define COMMON_H
 
 #include <stdio.h>
@@ -19,12 +19,12 @@
 #include <limits.h>
 #include <pthread.h>
 
-// Parametry g≥Ûwne systemu
-#define N1 15  // Maksymalna liczba osÛb jednoczeúnie na trasie 1
-#define N2 20  // Maksymalna liczba osÛb jednoczeúnie na trasie 2
-#define K 5    // Maksymalna wielkoúÊ grupy prowadzonej przez przewodnika
+/// G≈Ç√≥wne limity systemu - wymagane w zadaniu
+#define N1 15  /// Max os√≥b jednocze≈õnie na trasie 1
+#define N2 20  /// Max os√≥b jednocze≈õnie na trasie 2
+#define K 5    /// Max os√≥b na k≈Çadce (K < Ni)
 
-// Walidacja parametrÛw N1, N2, K
+/// Sprawdzamy czy parametry majƒÖ sens - kompilator wyrzuci b≈ÇƒÖd jak nie
 #if N1 <= 0
 #error "N1 musi byc > 0"
 #endif
@@ -45,133 +45,133 @@
 #error "K musi byc < N2"
 #endif
 
-// Parametry czasowe (w sekundach)
-#define T1 10  // Czas zwiedzania trasy 1
-#define T2 15  // Czas zwiedzania trasy 2
-#define Tp 0   // Czas planowania (nieuøywany)
-#define Tk 20  // Czas pracy kasy biletowej
+/// Czasy w sekundach - jak d≈Çugo co trwa
+#define T1 10  /// Zwiedzanie trasy 1
+#define T2 15  /// Zwiedzanie trasy 2
+#define Tp 0   /// Czas planowania (nieu≈ºywany bo 0)
+#define Tk 20  /// Jak d≈Çugo kasa dzia≈Ça
 
-// Parametry generatora zwiedzajπcych
-#define OPOZNIENIE_GENERATORA_MIN 0  // Minimalne opÛünienie miÍdzy generowaniem zwiedzajπcych
-#define OPOZNIENIE_GENERATORA_MAX 5  // Maksymalne opÛünienie miÍdzy generowaniem zwiedzajπcych
-#define SZANSA_POWTORNA 10           // Szansa (w %) na powrotnπ wizytÍ
-#define SZANSA_DZIECKO_OPIEKUN 70    // Szansa (w %) øe dziecko przyjdzie z opiekunem
-#define MIN_WIEK 1                   // Minimalny wiek zwiedzajπcego
-#define MAX_WIEK 80                  // Maksymalny wiek zwiedzajπcego
-#define MIN_WIEK_OPIEKUNA 25         // Minimalny wiek opiekuna
-#define MAX_WIEK_OPIEKUNA 60         // Maksymalny wiek opiekuna
-#define MAX_ZWIEDZAJACYCH 1000       // Maksymalna liczba zwiedzajπcych w systemie
+/// Ustawienia generatora zwiedzajƒÖcych
+#define OPOZNIENIE_GENERATORA_MIN 0  /// Min przerwa miƒôdzy lud≈∫mi
+#define OPOZNIENIE_GENERATORA_MAX 5  /// Max przerwa miƒôdzy lud≈∫mi
+#define SZANSA_POWTORNA 10           /// 10% ludzi wraca drugi raz
+#define SZANSA_DZIECKO_OPIEKUN 70    /// 70% dzieci przychodzi z doros≈Çym
+#define MIN_WIEK 1                   /// Najm≈Çodsze dziecko
+#define MAX_WIEK 80                  /// Najstarszy senior
+#define MIN_WIEK_OPIEKUNA 25         /// Opiekun musi mieƒá min 25 lat
+#define MAX_WIEK_OPIEKUNA 60         /// Opiekun musi mieƒá max 60 lat
+#define MAX_ZWIEDZAJACYCH 1000       ///Limit proces√≥w w systemie
 
-// Parametry czasowe dotyczπce zwiedzania
-#define CZAS_ZBIERANIA_GRUPY 5         // Czas oczekiwania na zebranie grupy (sekundy)
-#define CZAS_PRZECHODZENIA_KLADKA 200  // Czas przechodzenia przez k≥adkÍ (milisekundy)
+/// Parametry techniczne
+#define CZAS_ZBIERANIA_GRUPY 5         /// Przewodnik czeka max 5s na pe≈ÇnƒÖ grupƒô
+#define CZAS_PRZECHODZENIA_KLADKA 200  /// Ka≈ºdy idzie 200ms przez k≈Çadkƒô
 
-// Timeouty i interwa≥y
-#define TIMEOUT_ODPOWIEDZ_BILET 30        // Timeout oczekiwania na odpowiedü od kasjera
-#define INTERWAL_POLLING 100              // Interwa≥ pollingu (milisekundy)
-#define TIMEOUT_PUSTA_JASKINIA 300        // Timeout oczekiwania na pustπ jaskiniÍ przy zamykaniu
-#define WYPRZEDZENIE_SYGNAL_ZAMKNIECIA 10 // Wyprzedzenie sygna≥u zamkniÍcia jaskini
-#define TIMEOUT_CZEKAJ_CLEANUP 10         // Timeout oczekiwania podczas czyszczenia zasobÛw
-#define MAX_PROB_RETRY 10                 // Maksymalna liczba prÛb ponowienia operacji
-#define INTERWAL_LOG 10                   // Interwa≥ logowania (sekundy)
-#define PROBY_SPRAWDZ_OPIEKUNA 3          // Liczba prÛb sprawdzenia opiekuna
+/// Timeouty ≈ºeby nie czekaƒá w niesko≈Ñczono≈õƒá
+#define TIMEOUT_ODPOWIEDZ_BILET 30        /// Max czekanie na kasjer
+#define INTERWAL_POLLING 100              /// Co ile ms sprawdzaƒá (polling)
+#define TIMEOUT_PUSTA_JASKINIA 300        /// Max czekanie a≈º wszyscy wyjdƒÖ
+#define WYPRZEDZENIE_SYGNAL_ZAMKNIECIA 10 /// Sygna≈Ç zamkniƒôcia 10s przed ko≈Ñcem
+#define TIMEOUT_CZEKAJ_CLEANUP 10         /// Ile czekaƒá przy sprzƒÖtaniu
+#define MAX_PROB_RETRY 10                 /// Ile razy pr√≥bowaƒá pod≈ÇƒÖczyƒá IPC
+#define INTERWAL_LOG 10                   /// Co ile sekund logowaƒá stan
+#define PROBY_SPRAWDZ_OPIEKUNA 3          /// Ile razy sprawdziƒá czy opiekun ≈ºyje
 
-// Klucze IPC dla pamiÍci wspÛ≥dzielonej (zmienione na losowe)
-#define KLUCZ_SHM_JASKINIA 0x7A2F      // Klucz dla stanu jaskini (otwarta/zamkniÍta)
-#define KLUCZ_SHM_KLADKA1 0x4B91       // Klucz dla k≥adki na trasie 1
-#define KLUCZ_SHM_KLADKA2 0x8E3C       // Klucz dla k≥adki na trasie 2
-#define KLUCZ_SHM_TRASA1 0x2D74        // Klucz dla licznika osÛb na trasie 1
-#define KLUCZ_SHM_TRASA2 0x6A1E        // Klucz dla licznika osÛb na trasie 2
-#define KLUCZ_SHM_ZWIEDZAJACY 0x9F42   // Klucz dla listy aktywnych zwiedzajπcych
+/// Klucze IPC - losowe ≈ºeby nie kolidowa≈Çy z innymi programami
+#define KLUCZ_SHM_JASKINIA 0x7A2F      /// Czy jaskinia otwarta/zamkniƒôta
+#define KLUCZ_SHM_KLADKA1 0x4B91       /// Stan k≈Çadki 1
+#define KLUCZ_SHM_KLADKA2 0x8E3C       /// Stan k≈Çadki 2
+#define KLUCZ_SHM_TRASA1 0x2D74        /// Ile os√≥b na trasie 1
+#define KLUCZ_SHM_TRASA2 0x6A1E        /// Ile os√≥b na trasie 2
+#define KLUCZ_SHM_ZWIEDZAJACY 0x9F42   /// Lista PID√≥w zwiedzajƒÖcych
 
-// Klucze IPC dla semaforÛw (zmienione na losowe)
-#define KLUCZ_SEM_KLADKA1_MIEJSCA 0x3C8B  // Semafor limitujπcy miejsca na k≥adce 1
-#define KLUCZ_SEM_KLADKA2_MIEJSCA 0x5D29  // Semafor limitujπcy miejsca na k≥adce 2
-#define KLUCZ_SEM_LOG 0x1A7E              // Semafor synchronizujπcy zapis do logÛw
-#define KLUCZ_SEM_TRASA1_MUTEX 0x4F63     // Mutex dla operacji na trasie 1
-#define KLUCZ_SEM_TRASA2_MUTEX 0x8B94     // Mutex dla operacji na trasie 2
+/// Klucze dla semafor√≥w
+#define KLUCZ_SEM_KLADKA1_MIEJSCA 0x3C8B  /// Semafor limitujƒÖcy k≈Çadkƒô 1 (max K)
+#define KLUCZ_SEM_KLADKA2_MIEJSCA 0x5D29  /// Semafor limitujƒÖcy k≈Çadkƒô 2 (max K)
+#define KLUCZ_SEM_LOG 0x1A7E              /// Mutex do zapisu log√≥w
+#define KLUCZ_SEM_TRASA1_MUTEX 0x4F63     /// Mutex do licznika trasy 1
+#define KLUCZ_SEM_TRASA2_MUTEX 0x8B94     /// Mutex do licznika trasy 2
 
-// Klucze IPC dla kolejek komunikatÛw (zmienione na losowe)
-#define KLUCZ_MSG_KASJER 0x2E5A        // Kolejka komunikatÛw kasjera
-#define KLUCZ_MSG_PRZEWODNIK1 0x7C1F   // Kolejka komunikatÛw przewodnika trasy 1
-#define KLUCZ_MSG_PRZEWODNIK2 0x9A48   // Kolejka komunikatÛw przewodnika trasy 2
+/// Klucze dla kolejek komunikat√≥w
+#define KLUCZ_MSG_KASJER 0x2E5A        /// Kolejka do kasjera (pro≈õby o bilety)
+#define KLUCZ_MSG_PRZEWODNIK1 0x7C1F   /// Kolejka do przewodnika 1
+#define KLUCZ_MSG_PRZEWODNIK2 0x9A48   /// Kolejka do przewodnika 2
 
-// Typy komunikatÛw w kolejkach
-#define TYP_MSG_ZADANIE 1      // Typ: zadanie/øπdanie
-#define TYP_MSG_ODPOWIEDZ 2    // Typ: odpowiedü na øπdanie
-#define TYP_MSG_ZWIEDZAJACY 3  // Typ: informacja o zwiedzajπcym
-#define TYP_MSG_POWTORNA 4     // Typ: powrotna wizyta
+/// Typy wiadomo≈õci w kolejkach - ≈ºeby kasjer wiedzia≈Ç co to za request
+#define TYP_MSG_ZADANIE 1      /// Zwyk≈Çe zadanie (pierwsza wizyta)
+#define TYP_MSG_ODPOWIEDZ 2    /// Odpowied≈∫ od kasjera
+#define TYP_MSG_ZWIEDZAJACY 3  /// Info o zwiedzajƒÖcym do przewodnika
+#define TYP_MSG_POWTORNA 4     /// Powt√≥rna wizyta (wy≈ºszy priorytet!)
 
-// Decyzje kasjera
-#define DECYZJA_ODRZUCONY 0  // Zwiedzajπcy odrzucony
-#define DECYZJA_TRASA1 1     // Przydzielono trasÍ 1
-#define DECYZJA_TRASA2 2     // Przydzielono trasÍ 2
+/// Decyzje kasjera
+#define DECYZJA_ODRZUCONY 0  /// Nie wpuszczamy (np. dziecko bez opiekuna)
+#define DECYZJA_TRASA1 1     /// Idziesz na trasƒô 1
+#define DECYZJA_TRASA2 2     /// Idziesz na trasƒô 2
 
-// Kierunki ruchu na k≥adce
-#define KIERUNEK_PUSTY 0    // K≥adka pusta
-#define KIERUNEK_WEJSCIE 1  // Ruch w kierunku wejúcia do jaskini
-#define KIERUNEK_WYJSCIE 2  // Ruch w kierunku wyjúcia z jaskini
+/// Kierunki na k≈Çadce - wa≈ºne bo k≈Çadka wƒÖska (tylko jeden kierunek!)
+#define KIERUNEK_PUSTY 0    /// Nikt nie idzie, mo≈ºna zablokowaƒá
+#define KIERUNEK_WEJSCIE 1  /// Ludzie wchodzƒÖ do jaskini
+#define KIERUNEK_WYJSCIE 2  /// Ludzie wychodzƒÖ z jaskini
 
-// Struktura pamiÍci wspÛ≥dzielonej - stan jaskini
+/// Stan jaskini - czy otwarta czy ju≈º zamkniƒôta
 typedef struct {
-    volatile int otwarta;           // Czy jaskinia jest otwarta (1) czy zamkniÍta (0)
-    pthread_mutex_t mutex;          // Mutex zabezpieczajπcy dostÍp
-    pthread_cond_t cond_otwarta;    // Zmienna warunkowa dla stanu otwarcia
+    volatile int otwarta;           /// 1 = otwarta, 0 = zamkniƒôta
+    pthread_mutex_t mutex;          /// Mutex do bezpiecznej zmiany stanu
+    pthread_cond_t cond_otwarta;    /// Condition variable - budzimy procesy gdy otwieramy
 } ShmJaskinia;
 
-// Struktura pamiÍci wspÛ≥dzielonej - stan k≥adki
+/// Stan k≈Çadki - kto i w kt√≥rƒÖ stronƒô idzie
 typedef struct {
-    volatile int kierunek;          // Aktualny kierunek ruchu na k≥adce
-    volatile int osoby;             // Liczba osÛb aktualnie na k≥adce
-    volatile pid_t przewodnik_pid;  // PID przewodnika prowadzπcego grupÍ
-    pthread_mutex_t mutex;          // Mutex zabezpieczajπcy dostÍp
-    pthread_cond_t cond;            // Zmienna warunkowa dla synchronizacji
+    volatile int kierunek;          /// WEJSCIE/WYJSCIE/PUSTY
+    volatile int osoby;             /// Ile os√≥b aktualnie na k≈Çadce
+    volatile pid_t przewodnik_pid;  /// PID przewodnika kt√≥ry zablokowa≈Ç k≈Çadkƒô
+    pthread_mutex_t mutex;          /// Mutex do zmian
+    pthread_cond_t cond;            /// Condition variable do oczekiwania
 } ShmKladka;
 
-// Struktura pamiÍci wspÛ≥dzielonej - stan trasy
+/// Licznik os√≥b na trasie - prosta struktura
 typedef struct {
-    volatile int osoby;  // Liczba osÛb aktualnie na trasie
+    volatile int osoby;  /// Ile os√≥b aktualnie zwieda
 } ShmTrasa;
 
-// Struktura pamiÍci wspÛ≥dzielonej - lista zwiedzajπcych
+/// Lista wszystkich aktywnych zwiedzajƒÖcych - do cleanup
 typedef struct {
-    volatile int licznik;                  // Liczba aktywnych zwiedzajπcych
-    pid_t pidy[MAX_ZWIEDZAJACYCH];        // Tablica PID-Ûw zwiedzajπcych
+    volatile int licznik;                  /// Ile jest zwiedzajƒÖcych
+    pid_t pidy[MAX_ZWIEDZAJACYCH];        /// Tablica ich PID√≥w
 } ShmZwiedzajacy;
 
-// Struktura komunikatu do kasjera
+/// Wiadomo≈õƒá do kasjera - pro≈õba o bilet
 typedef struct {
-    long mtype;                // Typ wiadomoúci
-    pid_t pid_zwiedzajacego;   // PID zwiedzajπcego
-    int wiek;                  // Wiek zwiedzajπcego
-    int powtorna_wizyta;       // Czy to powrotna wizyta (1/0)
-    int poprzednia_trasa;      // Numer poprzedniej trasy (dla powrotnych wizyt)
-    pid_t pid_opiekuna;        // PID opiekuna (jeúli jest)
-    int czy_opiekun;           // Czy osoba jest opiekunem (1/0)
+    long mtype;                /// Typ: TYP_MSG_ZADANIE lub TYP_MSG_POWTORNA
+    pid_t pid_zwiedzajacego;   /// M√≥j PID (≈ºeby kasjer wiedzia≈Ç komu odpowiedzieƒá)
+    int wiek;                  /// M√≥j wiek (dla regulaminu)
+    int powtorna_wizyta;       /// Czy to m√≥j drugi raz (50% zni≈ºka!)
+    int poprzednia_trasa;      /// Je≈õli powt√≥rna - na kt√≥rej by≈Çem
+    pid_t pid_opiekuna;        /// PID opiekuna je≈õli jestem dzieckiem
+    int czy_opiekun;           /// Czy sam jestem opiekunem dziecka
 } WiadomoscKasjer;
 
-// Struktura komunikatu odpowiedzi od kasjera
+/// Odpowied≈∫ od kasjera - czy dosta≈Çem bilet
 typedef struct {
-    long mtype;              // Typ wiadomoúci (PID zwiedzajπcego)
-    int decyzja;             // Decyzja: odrzucony/trasa1/trasa2
-    int przydzielona_trasa;  // Numer przydzielonej trasy
+    long mtype;              /// PID zwiedzajƒÖcego (≈ºeby ka≈ºdy dosta≈Ç swojƒÖ odpowied≈∫)
+    int decyzja;             /// ODRZUCONY/TRASA1/TRASA2
+    int przydzielona_trasa;  /// Konkretny numer trasy
 } WiadomoscOdpowiedz;
 
-// Struktura komunikatu do przewodnika
+/// Wiadomo≈õƒá do przewodnika - do≈ÇƒÖczam do grupy
 typedef struct {
-    long mtype;              // Typ wiadomoúci
-    pid_t pid_zwiedzajacego; // PID zwiedzajπcego
-    int wiek;                // Wiek zwiedzajπcego
+    long mtype;              /// TYP_MSG_ZWIEDZAJACY
+    pid_t pid_zwiedzajacego; /// M√≥j PID
+    int wiek;                /// M√≥j wiek (dla statystyk)
 } WiadomoscPrzewodnik;
 
-// Unia pomocnicza dla operacji na semaforach
+/// Unia pomocnicza dla starszych wersji POSIX (semctl wymaga)
 union semun {
-    int val;                    // WartoúÊ dla SETVAL
-    struct semid_ds* buf;       // Bufor dla IPC_STAT, IPC_SET
-    unsigned short* array;      // Tablica dla GETALL, SETALL
+    int val;                    /// Warto≈õƒá dla SETVAL
+    struct semid_ds* buf;       /// Bufor dla IPC_STAT
+    unsigned short* array;      /// Tablica dla GETALL
 };
 
-// Funkcja pomocnicza - bezpieczna konwersja stringa na int z walidacjπ
+/// Pomocnicza funkcja - bezpieczna konwersja string‚Üíint z walidacjƒÖ
 static inline int bezpieczny_strtol(const char* str, int* wynik, int min, int max) {
     char* endptr;
     errno = 0;
@@ -182,10 +182,10 @@ static inline int bezpieczny_strtol(const char* str, int* wynik, int min, int ma
     return 0;
 }
 
-// Globalny identyfikator semafora dla logowania
+/// Globalny semafor do logowania - ≈ºeby logi siƒô nie miesza≈Çy
 extern int globalny_semid_log;
 
-// Funkcja pomocnicza - pod≥πczenie do semafora logowania z retry
+/// Pod≈ÇƒÖcz siƒô do semafora log√≥w z retry
 static inline int podlacz_sem_log() {
     int retry = 0;
     while (retry < MAX_PROB_RETRY) {
@@ -197,7 +197,7 @@ static inline int podlacz_sem_log() {
     return -1;
 }
 
-// Funkcja pomocnicza - bezpieczny zapis ca≥ego bufora do pliku
+/// Zapisz ca≈Çy bufor do pliku - retry przy EINTR
 static inline ssize_t bezpieczny_zapis_wszystko(int fd, const void* buf, size_t ilosc) {
     size_t zapisane = 0;
     const char* ptr = (const char*)buf;
@@ -205,7 +205,7 @@ static inline ssize_t bezpieczny_zapis_wszystko(int fd, const void* buf, size_t 
     while (zapisane < ilosc) {
         ssize_t n = write(fd, ptr + zapisane, ilosc - zapisane);
         if (n == -1) {
-            if (errno == EINTR) continue;  // Retry przy przerwaniu sygna≥em
+            if (errno == EINTR) continue;  /// Przerwa≈Ç sygna≈Ç - pr√≥buj dalej
             return -1;
         }
         zapisane += n;
@@ -213,24 +213,24 @@ static inline ssize_t bezpieczny_zapis_wszystko(int fd, const void* buf, size_t 
     return zapisane;
 }
 
-// Funkcja pomocnicza - bezpieczna operacja na semaforze z obs≥ugπ EINTR
+/// Bezpieczny semop - retry przy przerwaniu sygna≈Çem
 static inline int bezpieczny_semop(int semid, struct sembuf* ops, size_t liczba) {
     while (1) {
         if (semop(semid, ops, liczba) == 0) {
             return 0;
         }
-        if (errno != EINTR) {  // Jeúli b≥πd inny niø przerwanie sygna≥em
+        if (errno != EINTR) {  /// Je≈õli nie EINTR to prawdziwy b≈ÇƒÖd
             return -1;
         }
-        // Przy EINTR - prÛbuj ponownie
+        /// Przy EINTR pr√≥buj ponownie
     }
 }
 
-// Funkcja pomocnicza - bezpieczny zapis do logu z synchronizacjπ
+/// Zapisz do logu z mutexem - ≈ºeby wiele proces√≥w mog≈Ço logowaƒá r√≥wnocze≈õnie
 static inline void bezpieczny_zapis_logu(const char* buf, size_t dlugosc, const char* nazwa_pliku) {
     int sem_zdobyty = 0;
 
-    // PrÛba zdobycia semafora logowania
+    /// Pr√≥ba zdobycia mutexu
     if (globalny_semid_log != -1) {
         struct sembuf op = { 0, -1, 0 };
         if (bezpieczny_semop(globalny_semid_log, &op, 1) == 0) {
@@ -238,27 +238,27 @@ static inline void bezpieczny_zapis_logu(const char* buf, size_t dlugosc, const 
         }
     }
 
-    // Otwarcie i zapis do pliku
+    /// Zapis do pliku
     int fd = open(nazwa_pliku, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd != -1) {
         bezpieczny_zapis_wszystko(fd, buf, dlugosc);
         close(fd);
     }
 
-    // Zwolnienie semafora logowania
+    /// Zwolnienie mutexu
     if (sem_zdobyty) {
         struct sembuf op = { 0, 1, 0 };
         bezpieczny_semop(globalny_semid_log, &op, 1);
     }
 }
 
-// Funkcja pomocnicza - wait na semaforze (P operation)
+/// P operation (wait) na semaforze
 static inline void bezpieczny_sem_wait(int semid, int numer) {
     struct sembuf op = { numer, -1, 0 };
     bezpieczny_semop(semid, &op, 1);
 }
 
-// Funkcja pomocnicza - signal na semaforze (V operation)
+/// V operation (signal) na semaforze
 static inline void bezpieczny_sem_signal(int semid, int numer) {
     struct sembuf op = { numer, 1, 0 };
     bezpieczny_semop(semid, &op, 1);

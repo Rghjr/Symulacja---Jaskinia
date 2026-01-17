@@ -3,13 +3,14 @@
 
 #include "common.h"
 
+/// Pod³¹cz siê do shared memory z retry - czasem IPC jeszcze nie istnieje
 static inline int podlacz_shm_helper(key_t klucz, void** ptr) {
     int retry = 0;
     while (retry < MAX_PROB_RETRY) {
-        int shmid = shmget(klucz, 0, 0);
+        int shmid = shmget(klucz, 0, 0);  /// ZnajdŸ istniej¹cy segment
         if (shmid != -1) {
-            *ptr = shmat(shmid, NULL, 0);
-            if (*ptr != (void*)-1) return 0;
+            *ptr = shmat(shmid, NULL, 0);  /// Pod³¹cz siê do niego
+            if (*ptr != (void*)-1) return 0;  /// Sukces!
             sleep(1);
             retry++;
             continue;
@@ -17,9 +18,10 @@ static inline int podlacz_shm_helper(key_t klucz, void** ptr) {
         sleep(1);
         retry++;
     }
-    return -1;
+    return -1;  /// Nie uda³o siê po MAX_PROB_RETRY próbach
 }
 
+/// Pod³¹cz siê do semafora z retry
 static inline int podlacz_sem_helper(key_t klucz) {
     int retry = 0;
     while (retry < MAX_PROB_RETRY) {
@@ -31,6 +33,7 @@ static inline int podlacz_sem_helper(key_t klucz) {
     return -1;
 }
 
+/// Pod³¹cz siê do kolejki komunikatów z retry
 static inline int podlacz_msg_helper(key_t klucz) {
     int retry = 0;
     while (retry < MAX_PROB_RETRY) {
@@ -42,6 +45,7 @@ static inline int podlacz_msg_helper(key_t klucz) {
     return -1;
 }
 
+/// Makro do bezpiecznego od³¹czenia shared memory
 #define BEZPIECZNY_SHMDT(ptr) \
     do { \
         if (ptr) { \
@@ -50,6 +54,7 @@ static inline int podlacz_msg_helper(key_t klucz) {
         } \
     } while(0)
 
+/// Inicjalizuj globalny semafor logów - wywo³aj na pocz¹tku main()
 #define INIT_SEMAFOR_LOG() \
     do { \
         globalny_semid_log = podlacz_sem_log(); \
@@ -58,10 +63,12 @@ static inline int podlacz_msg_helper(key_t klucz) {
         } \
     } while(0)
 
+/// SprawdŸ czy proces o danym PID jeszcze ¿yje
 static inline int czy_proces_zyje(pid_t pid) {
-    return (pid > 0 && kill(pid, 0) == 0);
+    return (pid > 0 && kill(pid, 0) == 0);  /// kill(pid,0) sprawdza istnienie
 }
 
+/// Makro - czekaj a¿ jaskinia siê zamknie
 #define CZEKAJ_NA_ZAMKNIECIE(shm_jaskinia, flaga_kontynuuj) \
     do { \
         if (!(shm_jaskinia)->otwarta) { \
