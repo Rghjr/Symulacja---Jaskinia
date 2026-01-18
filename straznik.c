@@ -135,7 +135,12 @@ void wyczysc_ipc() {
 int main() {
     signal(SIGINT, obsluga_sygnalu);   /// Ctrl+C
     signal(SIGTERM, obsluga_sygnalu);
-    signal(SIGCHLD, obsluga_sigchld);  /// Zombie children
+
+    struct sigaction sa_chld;
+    sa_chld.sa_handler = obsluga_sigchld;
+    sa_chld.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    sigemptyset(&sa_chld.sa_mask);
+    sigaction(SIGCHLD, &sa_chld, NULL);
 
     loguj_wiadomosc("=== START STRAZNIKA ===");
     loguj_wiadomosc("Strategia kladek: Lock->Cross->Unlock (maksymalna przepustowosc)");
@@ -417,11 +422,29 @@ int main() {
             break;
         }
 
-        sleep(1);
+        usleep(100000);
+
+        if (sigchld_otrzymany) {
+            sigchld_otrzymany = 0;
+            while (waitpid(-1, NULL, WNOHANG) > 0);
+        }
     }
 
+    /// Jeœli Ctrl+C - wyœlij sygna³y do przewodników (jak przy Tk-10)
     if (zakonczenie_zadane) {
         loguj_wiadomosc("=== OTRZYMANO CTRL+C - SYSTEMATYCZNE ZAMYKANIE ===");
+
+        if (!sygnaly_wyslane) {
+            loguj_wiadomosc("Wysylam sygnaly zamkniecia do przewodnikow (Ctrl+C)");
+
+            loguj_wiadomoscf("SIGUSR1 -> przewodnik1 (PID=%d)", pid_przewodnik1);
+            kill(pid_przewodnik1, SIGUSR1);
+
+            loguj_wiadomoscf("SIGUSR2 -> przewodnik2 (PID=%d)", pid_przewodnik2);
+            kill(pid_przewodnik2, SIGUSR2);
+
+            sygnaly_wyslane = 1;
+        }
     }
 
     /// KROK 12: ZAMKNIJ JASKINIÊ (brak nowych zwiedzaj¹cych)
@@ -444,12 +467,24 @@ int main() {
             break;
         }
 
+        /// SprawdŸ czy przewodnicy jeszcze ¿yj¹
+        int p1_zyje = czy_proces_zyje(pid_przewodnik1);
+        int p2_zyje = czy_proces_zyje(pid_przewodnik2);
+
+        if (!p1_zyje && !p2_zyje) {
+            loguj_wiadomosc("Przewodnicy juz nie zyja - przerywam czekanie na liczniki");
+            loguj_wiadomoscf("UWAGA: Pozostalo na trasach: t1=%d t2=%d (procesy martwe)", t1, t2);
+            break;
+        }
+
         if (licznik_czekania % INTERWAL_LOG == 0) {
             loguj_wiadomoscf("Oczekiwanie: trasa1=%d trasa2=%d (czas=%ds)", t1, t2, licznik_czekania);
         }
 
         sleep(1);
         licznik_czekania++;
+
+        while (waitpid(-1, NULL, WNOHANG) > 0);
     }
 
     /// KROK 14: SYSTEMATYCZNY CLEANUP
@@ -458,7 +493,12 @@ int main() {
     loguj_wiadomoscf("PID-y workerow: generator=%d kasjer=%d p1=%d p2=%d",
         pid_generator, pid_kasjer, pid_przewodnik1, pid_przewodnik2);
 
-    /// Zapisz listê zwiedzaj¹cych
+    /// Kolejnoœæ zamykania: generator -> zwiedzaj¹cy -> kasjer -> przewodnicy
+    /// Generator MUSI byæ zabity PRZED czytaniem listy! Inaczej zd¹¿y utworzyæ nowych
+    loguj_wiadomosc("KROK 1/4: Zamykanie generatora");
+    zakoncz_proces(pid_generator, "generator", TIMEOUT_CZEKAJ_CLEANUP);
+
+    /// Zapisz listê zwiedzaj¹cych (teraz ju¿ finalna - generator nie tworzy nowych)
     int liczba_zwiedzajacych = shm_zwiedzajacy->licznik;
     loguj_wiadomoscf("Lista zwiedzajacych: %d procesow", liczba_zwiedzajacych);
 
@@ -475,10 +515,6 @@ int main() {
     BEZPIECZNY_SHMDT(shm_t1);
     BEZPIECZNY_SHMDT(shm_t2);
     BEZPIECZNY_SHMDT(shm_zwiedzajacy);
-
-    /// Kolejnoœæ zamykania: generator -> zwiedzaj¹cy -> kasjer -> przewodnicy
-    loguj_wiadomosc("KROK 1/4: Zamykanie generatora");
-    zakoncz_proces(pid_generator, "generator", TIMEOUT_CZEKAJ_CLEANUP);
 
     if (prawidlowi_zwiedzajacy > 0) {
         loguj_wiadomoscf("KROK 2/4: Zamykanie zwiedzajacych (%d procesow)", prawidlowi_zwiedzajacy);
@@ -521,7 +557,13 @@ int main() {
 
     loguj_wiadomosc("Wszystkie procesy robocze zakonczone");
 
+    loguj_wiadomosc("Zbieranie zombie procesow");
+    int zombie_count = 0;
+    while (waitpid(-1, NULL, WNOHANG) > 0) zombie_count++;
+    loguj_wiadomoscf("Zebrano %d zombie procesow", zombie_count);
+
     /// KROK 15: Usuñ wszystkie zasoby IPC
+    loguj_wiadomosc("KROK 5/5: Usuwanie zasobow IPC");
     wyczysc_ipc();
 
     loguj_wiadomosc("=== STRAZNIK ZAKONCZYL PRACE (ostatni proces) ===");

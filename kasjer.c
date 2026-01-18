@@ -90,6 +90,7 @@ void wyswietl_raport() {
 
 int main() {
     signal(SIGTERM, obsluga_sigterm);
+    signal(SIGINT, SIG_IGN);
     srand(time(NULL) ^ getpid());
 
     INIT_SEMAFOR_LOG();
@@ -137,16 +138,15 @@ int main() {
     WiadomoscKasjer zadanie;
     WiadomoscOdpowiedz odpowiedz;
 
-    /// Główna pętla - obsługa prośb o bilety
+    /// Główna pętla - obsługa próśb o bilety
     while (kontynuuj) {
         pthread_mutex_lock(&shm_j->mutex);
         int otwarta = shm_j->otwarta;
         pthread_mutex_unlock(&shm_j->mutex);
 
         if (!otwarta) {
-            loguj_wiadomosc("Jaskinia zamknieta, czekam na SIGTERM");
-            while (kontynuuj) sleep(1);
-            break;
+            loguj_wiadomosc("Jaskinia zamknieta, przetwarzam pozostale zadania");
+            /// Przetwarzaj pozostałe zadania z kolejki zamiast od razu kończyć
         }
 
         int otrzymano = 0;
@@ -164,6 +164,12 @@ int main() {
         }
         /// Jeśli obie puste - czekaj na cokolwiek (blocking)
         else if (errno == ENOMSG) {
+            /// Jeśli jaskinia zamknięta i kolejka pusta - koniec
+            if (!otwarta) {
+                loguj_wiadomosc("Jaskinia zamknieta i kolejka pusta - zakoncz");
+                break;
+            }
+
             ssize_t wynik = msgrcv(msgid, &zadanie, sizeof(WiadomoscKasjer) - sizeof(long),
                 0, 0);
 
@@ -251,7 +257,15 @@ int main() {
         odpowiedz.decyzja = decyzja;
         odpowiedz.przydzielona_trasa = trasa;
 
-        if (msgsnd(msgid, &odpowiedz, sizeof(WiadomoscOdpowiedz) - sizeof(long), 0) != -1) {
+        /// Sprawdź czy proces nadal żyje przed wysłaniem
+        if (!czy_proces_zyje(zadanie.pid_zwiedzajacego)) {
+            loguj_wiadomoscf("WARN: Zwiedzajacy PID=%d juz nie istnieje, pomijam odpowiedz",
+                zadanie.pid_zwiedzajacego);
+            continue;
+        }
+
+        /// Obsługa błędów przy msgsnd
+        if (msgsnd(msgid, &odpowiedz, sizeof(WiadomoscOdpowiedz) - sizeof(long), IPC_NOWAIT) != -1) {
             if (decyzja != DECYZJA_ODRZUCONY) {
                 loguj_wiadomoscf("ACCEPT: PID=%d trasa=%d", zadanie.pid_zwiedzajacego, trasa);
 
@@ -268,8 +282,23 @@ int main() {
             }
         }
         else {
-            perror("msgsnd odpowiedz");
-            loguj_wiadomoscf("ERROR: msgsnd odpowiedz: %s", strerror(errno));
+            /// Szczegółowa obsługa błędów
+            if (errno == EIDRM) {
+                loguj_wiadomosc("ERROR: Kolejka usunieta podczas wysylania odpowiedzi");
+                break;  /// Kolejka usunięta - kończymy pracę
+            }
+            else if (errno == EAGAIN) {
+                loguj_wiadomoscf("WARN: Kolejka pelna, odpowiedz do PID=%d pominięta",
+                    zadanie.pid_zwiedzajacego);
+            }
+            else if (errno == EINVAL) {
+                loguj_wiadomoscf("ERROR: msgsnd EINVAL - nieprawidlowy rozmiar lub mtype=%ld",
+                    odpowiedz.mtype);
+            }
+            else {
+                perror("msgsnd odpowiedz");
+                loguj_wiadomoscf("ERROR: msgsnd odpowiedz: %s (errno=%d)", strerror(errno), errno);
+            }
         }
     }
 

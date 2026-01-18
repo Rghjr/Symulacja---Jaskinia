@@ -49,7 +49,7 @@
 #define T1 10  /// Zwiedzanie trasy 1
 #define T2 15  /// Zwiedzanie trasy 2
 #define Tp 0   /// Czas planowania (nieużywany bo 0)
-#define Tk 20  /// Jak długo kasa działa
+#define Tk 120  /// Jak długo kasa działa
 
 /// Ustawienia generatora zwiedzających
 #define OPOZNIENIE_GENERATORA_MIN 0  /// Min przerwa między ludźmi
@@ -60,11 +60,12 @@
 #define MAX_WIEK 80                  /// Najstarszy senior
 #define MIN_WIEK_OPIEKUNA 25         /// Opiekun musi mieć min 25 lat
 #define MAX_WIEK_OPIEKUNA 60         /// Opiekun musi mieć max 60 lat
-#define MAX_ZWIEDZAJACYCH 1000       ///Limit procesów w systemie
+#define MAX_ZWIEDZAJACYCH 1000       /// Limit żyjących procesów zwiedzających
 
 /// Parametry techniczne
 #define CZAS_ZBIERANIA_GRUPY 5         /// Przewodnik czeka max 5s na pełną grupę
 #define CZAS_PRZECHODZENIA_KLADKA 200  /// Każdy idzie 200ms przez kładkę
+#define MAX_CZAS_W_KOLEJCE 60          /// Max czas oczekiwania zwiedzającego w kolejce
 
 /// Timeouty żeby nie czekać w nieskończoność
 #define TIMEOUT_ODPOWIEDZ_BILET 30        /// Max czekanie na kasjer

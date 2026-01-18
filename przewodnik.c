@@ -79,6 +79,7 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, obsluga_sigterm);
     signal(NUMER == 1 ? SIGUSR1 : SIGUSR2, obsluga_zamkniecie);  /// Ka¿dy przewodnik ma swój sygna³!
     signal(SIGALRM, obsluga_alarm);
+    signal(SIGINT, SIG_IGN);
 
     INIT_SEMAFOR_LOG();
 

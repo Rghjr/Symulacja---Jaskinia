@@ -68,8 +68,23 @@ void zarejestruj_zwiedzajacego(ShmZwiedzajacy* shm_zwiedzajacy, pid_t pid) {
     }
 }
 
+/// Zlicz ile zwiedzaj¹cych faktycznie ¿yje
+int policz_zyjacych_zwiedzajacych(ShmZwiedzajacy* shm_zwiedzajacy) {
+    int zywe = 0;
+    int sprawdzonych = shm_zwiedzajacy->licznik;
+    if (sprawdzonych > MAX_ZWIEDZAJACYCH) sprawdzonych = MAX_ZWIEDZAJACYCH;
+
+    for (int i = 0; i < sprawdzonych; i++) {
+        if (czy_proces_zyje(shm_zwiedzajacy->pidy[i])) {
+            zywe++;
+        }
+    }
+    return zywe;
+}
+
 int main() {
     signal(SIGTERM, obsluga_sigterm);
+    signal(SIGINT, SIG_IGN);
 
     /// Ignoruj SIGCHLD - nie chcemy zombie procesów
     struct sigaction sa;
@@ -114,7 +129,7 @@ int main() {
     }
 
     loguj_wiadomosc("Jaskinia otwarta, generuje zwiedzajacych");
-    loguj_wiadomoscf("Konfiguracja: opoznienie=%d-%ds, limit=%d",
+    loguj_wiadomoscf("Konfiguracja: opoznienie=%d-%ds, max_zyjacych=%d",
         OPOZNIENIE_GENERATORA_MIN, OPOZNIENIE_GENERATORA_MAX, MAX_ZWIEDZAJACYCH);
 
     int licznik = 0;
@@ -133,6 +148,15 @@ int main() {
             break;
         }
 
+        /// SprawdŸ limit ¿yj¹cych zwiedzaj¹cych
+        int zywe = policz_zyjacych_zwiedzajacych(shm_zwiedzajacy);
+        if (zywe >= MAX_ZWIEDZAJACYCH) {
+            loguj_wiadomoscf("Limit zyjacych zwiedzajacych osiagniety (%d/%d), czekam",
+                zywe, MAX_ZWIEDZAJACYCH);
+            sleep(2);
+            continue;
+        }
+
         /// Losuj parametry zwiedzaj¹cego
         int wiek = MIN_WIEK + (rand() % (MAX_WIEK - MIN_WIEK + 1));
         int powtorna = (rand() % 100) < SZANSA_POWTORNA ? 1 : 0;  /// 10% szansy
@@ -142,8 +166,8 @@ int main() {
         /// Jeœli dziecko <8 lat - 70% szansy ¿e przyjdzie z opiekunem
         if (wiek < 8) {
             if (rand() % 100 < SZANSA_DZIECKO_OPIEKUN) {
-                /// SprawdŸ czy jest miejsce na parê opiekun+dziecko
-                if (shm_zwiedzajacy->licznik >= MAX_ZWIEDZAJACYCH - 1) {
+                /// SprawdŸ czy jest miejsce na parê opiekun+dziecko (2 osoby)
+                if (zywe >= MAX_ZWIEDZAJACYCH - 1) {
                     loguj_wiadomosc("Brak miejsca na pare opiekun-dziecko, czekam");
                     sleep(2);
                     continue;
